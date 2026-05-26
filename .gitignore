@@ -1,0 +1,9 @@
+data/
+drafts/
+whisper-binary-boundary-model/
+*.wav
+*.mp3
+*.pt
+*.npz
+__pycache__/
+.ipynb_checkpoints/
