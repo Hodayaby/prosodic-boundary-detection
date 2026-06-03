@@ -1,9 +1,32 @@
-data/
-drafts/
-whisper-binary-boundary-model/
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Data
+data/*
+!data/.gitkeep
 *.wav
 *.mp3
-*.pt
-*.npz
-__pycache__/
-.ipynb_checkpoints/
+*.mp4
+*.zip
+*.rar
+*.7z
+
+# Large tables / generated files
+*.xlsx
+*.xls
+outputs/
+results/
+checkpoints/
+models/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
