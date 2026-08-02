@@ -3,7 +3,7 @@ import torch
 import pandas as pd
 import librosa
 
-from datasets import Dataset, Audio, DatasetDict
+from datasets import Dataset, DatasetDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Union
 
@@ -14,6 +14,7 @@ from transformers import (
     WhisperForConditionalGeneration,
     Seq2SeqTrainingArguments,
     Seq2SeqTrainer,
+    EarlyStoppingCallback,
 )
 
 # ============================================================
@@ -24,55 +25,69 @@ MODEL_NAME = "openai/whisper-small"
 LANGUAGE = "english"
 TASK = "transcribe"
 
-SHERLOCK_CSV = "data/sherlock_audio_training_data.csv"
-MERLIN_CSV = "data/merlin_audio_training_data.csv"
+TRAIN_CSV = "data/splits/train_chunks.csv"
+VALID_CSV = "data/splits/valid_chunks.csv"
+TEST_CSV = "data/splits/test_chunks.csv"
 
-AUDIO_DIR = "data/audio"
-OUTPUT_DIR = "whisper-binary-boundary-model"
+OUTPUT_DIR = "whisper-binary-boundary-model2"
 
-TRAIN_RATIO = 0.85
+NUM_TRAIN_EPOCHS = 5
 RANDOM_SEED = 42
+
 # ============================================================
-# Load CSV files
+# Load split CSV files
 # ============================================================
 
-sherlock_df = pd.read_csv(SHERLOCK_CSV)
-merlin_df = pd.read_csv(MERLIN_CSV)
+train_df = pd.read_csv(TRAIN_CSV)
+valid_df = pd.read_csv(VALID_CSV)
+test_df = pd.read_csv(TEST_CSV)
 
-df = pd.concat([sherlock_df, merlin_df], ignore_index=True)
+print("Train columns:", train_df.columns.tolist())
+print("Validation columns:", valid_df.columns.tolist())
+print("Test columns:", test_df.columns.tolist())
 
-print("Columns:", df.columns.tolist())
-print("Number of rows:", len(df))
-print(df.head())
-
+print("Train samples:", len(train_df))
+print("Validation samples:", len(valid_df))
+print("Test samples:", len(test_df))
 
 # ============================================================
 # Prepare paths and target text
 # ============================================================
 
-# CSV columns:
-# audio_file = wav file name
+# Expected columns:
+# audio_path = path to wav file
 # text       = target text with binary labels before words
-#
-# Example:
-# 1 okay 0 so 0 they 0 began ...
 
-df["audio"] = df["audio_file"].apply(
-    lambda filename: os.path.join(AUDIO_DIR, filename)
-)
+train_df["audio"] = train_df["audio_path"].str.replace("\\", "/", regex=False)
+valid_df["audio"] = valid_df["audio_path"].str.replace("\\", "/", regex=False)
+test_df["audio"] = test_df["audio_path"].str.replace("\\", "/", regex=False)
 
-df["sentence"] = df["text"]
+train_df["sentence"] = train_df["text"]
+valid_df["sentence"] = valid_df["text"]
+test_df["sentence"] = test_df["text"]
 
-df = df[["audio", "sentence"]]
+print("\nExample paths after Linux conversion:")
+print("Train:", train_df["audio"].iloc[0])
+print("Validation:", valid_df["audio"].iloc[0])
+print("Test:", test_df["audio"].iloc[0])
 
+train_df = train_df[["audio", "sentence"]]
+valid_df = valid_df[["audio", "sentence"]]
+test_df = test_df[["audio", "sentence"]]
 
 # ============================================================
 # Check missing audio files
 # ============================================================
 
+all_audio_paths = (
+    train_df["audio"].tolist()
+    + valid_df["audio"].tolist()
+    + test_df["audio"].tolist()
+)
+
 missing_files = []
 
-for audio_path in df["audio"]:
+for audio_path in all_audio_paths:
     if not os.path.exists(audio_path):
         missing_files.append(audio_path)
 
@@ -83,24 +98,10 @@ if missing_files:
 
     raise FileNotFoundError(
         f"Found {len(missing_files)} missing audio files. "
-        "Please make sure all wav files are inside data/audio/"
+        "Please make sure all wav files are in the correct location."
     )
 
-print(f"\nAll audio files found. Total samples: {len(df)}")
-
-
-# ============================================================
-# Train / validation split
-# ============================================================
-
-train_df = df.sample(frac=TRAIN_RATIO, random_state=RANDOM_SEED)
-valid_df = df.drop(train_df.index)
-
-print(f"Train ratio: {TRAIN_RATIO:.0%}")
-print(f"Validation ratio: {1 - TRAIN_RATIO:.0%}")
-print(f"Train samples: {len(train_df)}")
-print(f"Validation samples: {len(valid_df)}")
-
+print(f"\nAll audio files found. Total samples: {len(all_audio_paths)}")
 
 # ============================================================
 # Convert to HuggingFace Dataset
@@ -109,11 +110,8 @@ print(f"Validation samples: {len(valid_df)}")
 dataset = DatasetDict({
     "train": Dataset.from_pandas(train_df.reset_index(drop=True)),
     "validation": Dataset.from_pandas(valid_df.reset_index(drop=True)),
+    "test": Dataset.from_pandas(test_df.reset_index(drop=True)),
 })
-
-# We load audio manually with librosa inside prepare_dataset,
-# because cast_column(Audio) may fail with some datasets/pyarrow versions.
-
 
 # ============================================================
 # Load Whisper components
@@ -142,7 +140,6 @@ model.config.forced_decoder_ids = processor.get_decoder_prompt_ids(
 
 model.config.suppress_tokens = []
 
-
 # ============================================================
 # Check how 0/1 labels are tokenized
 # ============================================================
@@ -153,44 +150,24 @@ print("'1'  ->", tokenizer.encode("1", add_special_tokens=False))
 print("' 0' ->", tokenizer.encode(" 0", add_special_tokens=False))
 print("' 1' ->", tokenizer.encode(" 1", add_special_tokens=False))
 
-
 # ============================================================
 # Preprocessing
 # ============================================================
 
 def prepare_dataset(batch):
-    """
-    Loads one audio file and prepares it for Whisper fine-tuning.
-
-    Input:
-        batch["audio"]    = path to wav file
-        batch["sentence"] = target text with 0/1 labels before words
-
-    Output:
-        input_features = processed audio features for Whisper
-        labels         = tokenized target text
-    """
-
     audio_path = batch["audio"]
 
-    # Load audio manually.
-    # sr=16000 makes sure the audio sampling rate matches Whisper's expected rate.
-    # mono=True converts stereo to mono if needed.
     speech_array, sampling_rate = librosa.load(
         audio_path,
         sr=16000,
         mono=True
     )
 
-    # Convert raw audio into Whisper log-mel input features.
     batch["input_features"] = feature_extractor(
         speech_array,
         sampling_rate=sampling_rate
     ).input_features[0]
 
-    # Convert target text into token IDs.
-    # Example target:
-    # "1 okay 0 so 0 they ..."
     batch["labels"] = tokenizer(batch["sentence"]).input_ids
 
     return batch
@@ -201,7 +178,6 @@ dataset = dataset.map(
     remove_columns=dataset["train"].column_names,
     num_proc=1
 )
-
 
 # ============================================================
 # Data collator
@@ -255,7 +231,6 @@ data_collator = DataCollatorSpeechSeq2SeqWithPadding(
     decoder_start_token_id=model.config.decoder_start_token_id,
 )
 
-
 # ============================================================
 # Training settings
 # ============================================================
@@ -269,20 +244,17 @@ training_args = Seq2SeqTrainingArguments(
 
     learning_rate=1e-5,
     warmup_steps=20,
-    max_steps=200,
+    num_train_epochs=NUM_TRAIN_EPOCHS,
 
     fp16=torch.cuda.is_available(),
 
-    eval_strategy="steps",
-    eval_steps=50,
-
-    save_strategy="steps",
-    save_steps=50,
+    eval_strategy="epoch",
+    save_strategy="epoch",
 
     logging_steps=10,
 
     predict_with_generate=True,
-    generation_max_length=300,
+    generation_max_length=448,
 
     report_to=[],
 
@@ -290,7 +262,6 @@ training_args = Seq2SeqTrainingArguments(
     metric_for_best_model="eval_loss",
     greater_is_better=False,
 )
-
 
 # ============================================================
 # Trainer
@@ -303,8 +274,10 @@ trainer = Seq2SeqTrainer(
     eval_dataset=dataset["validation"],
     data_collator=data_collator,
     tokenizer=processor.feature_extractor,
+    callbacks=[
+        EarlyStoppingCallback(early_stopping_patience=2)
+    ],
 )
-
 
 # ============================================================
 # Train and save
