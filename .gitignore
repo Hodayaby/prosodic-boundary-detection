@@ -20,8 +20,19 @@ data/*
 *.xls
 outputs/
 results/
+results_eval_*/
+evaluation_outputs*/
 checkpoints/
 models/
+*.tar.gz
+*.gz
+*.out
+*.err
+
+# Historical / superseded snapshots
+old_data/
+backup_old_splits_*/
+drafts/
 
 # System files
 .DS_Store
@@ -30,3 +41,4 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.claude/
