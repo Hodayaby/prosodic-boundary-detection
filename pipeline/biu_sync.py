@@ -42,6 +42,9 @@ MAX_JOB_TIME_S = 2 * 60 * 60
 OVERHEAD_S = 10 * 60
 PER_CHUNK_S = 90
 
+POLL_MAX_RETRIES = 3
+POLL_RETRY_DELAY_S = 5.0
+
 TERMINAL_FAILURE_STATES = {"FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "BOOT_FAIL"}
 
 
@@ -209,6 +212,34 @@ def poll_job_status(ssh: paramiko.SSHClient, slurm_job_id: str) -> JobStatus:
     return JobStatus(slurm_job_id=slurm_job_id, state=_parse_sacct_state(output))
 
 
+def poll_job_status_with_retry(
+    ssh: paramiko.SSHClient,
+    slurm_job_id: str,
+    max_retries: int = POLL_MAX_RETRIES,
+    retry_delay_s: float = POLL_RETRY_DELAY_S,
+) -> JobStatus:
+    """poll_job_status(), retrying on transient failures (a dropped VPN/network
+    blip during one sacct call) instead of giving up on tracking the whole job.
+
+    Only retries exceptions raised while trying to poll. A job that legitimately
+    reached a terminal FAILED state is a normal JobStatus return, not an
+    exception - that's handled by the caller in run_biu_job(), unaffected by this.
+    """
+    last_exc: Optional[Exception] = None
+    for attempt in range(max_retries + 1):
+        try:
+            return poll_job_status(ssh, slurm_job_id)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                time.sleep(retry_delay_s)
+
+    raise BIUJobError(
+        f"Lost track of SLURM job {slurm_job_id} after {max_retries} retries "
+        f"(likely a dropped connection, not necessarily a failed job): {last_exc}"
+    ) from last_exc
+
+
 def download_result(ssh: paramiko.SSHClient, job_dir: str, local_path: Path) -> None:
     sftp = ssh.open_sftp()
     try:
@@ -247,7 +278,7 @@ def run_biu_job(
 
             start = time.monotonic()
             while True:
-                status = poll_job_status(ssh, slurm_job_id)
+                status = poll_job_status_with_retry(ssh, slurm_job_id)
 
                 if status.state == "COMPLETED":
                     break

@@ -20,6 +20,7 @@ from pipeline.biu_sync import (
     download_result,
     estimate_slurm_time,
     poll_job_status,
+    poll_job_status_with_retry,
     submit_slurm_job,
     upload_job,
 )
@@ -185,6 +186,46 @@ def test_cleanup_job_runs_rm_rf():
     cleanup_job(ssh, "pipeline_jobs/abc")
     assert "rm -rf" in ssh.exec_command.call_args[0][0]
     assert "pipeline_jobs/abc" in ssh.exec_command.call_args[0][0]
+
+
+def test_poll_job_status_with_retry_succeeds_first_try(monkeypatch):
+    calls = []
+    monkeypatch.setattr(biu_sync, "poll_job_status", lambda ssh, job_id: calls.append(1) or JobStatus(job_id, "RUNNING"))
+
+    status = poll_job_status_with_retry(MagicMock(), "42", retry_delay_s=0)
+    assert status.state == "RUNNING"
+    assert len(calls) == 1
+
+
+def test_poll_job_status_with_retry_recovers_after_transient_failures(monkeypatch):
+    attempts = iter([ConnectionError("blip"), ConnectionError("blip again"), JobStatus("42", "RUNNING")])
+
+    def fake_poll(ssh, job_id):
+        result = next(attempts)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(biu_sync, "poll_job_status", fake_poll)
+
+    status = poll_job_status_with_retry(MagicMock(), "42", max_retries=3, retry_delay_s=0)
+    assert status.state == "RUNNING"
+
+
+def test_poll_job_status_with_retry_gives_up_after_max_retries(monkeypatch):
+    monkeypatch.setattr(biu_sync, "poll_job_status", lambda ssh, job_id: (_ for _ in ()).throw(ConnectionError("dead")))
+
+    with pytest.raises(BIUJobError):
+        poll_job_status_with_retry(MagicMock(), "42", max_retries=2, retry_delay_s=0)
+
+
+def test_poll_job_status_with_retry_does_not_swallow_legitimate_failed_state(monkeypatch):
+    """A job that really failed returns a normal JobStatus, not an exception -
+    retry logic must not mask or retry past that; it's the caller's job to act on it."""
+    monkeypatch.setattr(biu_sync, "poll_job_status", lambda ssh, job_id: JobStatus(job_id, "FAILED"))
+
+    status = poll_job_status_with_retry(MagicMock(), "42", retry_delay_s=0)
+    assert status.state == "FAILED"
 
 
 def test_connect_wraps_auth_failure(monkeypatch):
