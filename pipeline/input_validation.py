@@ -41,6 +41,8 @@ class InputValidationError(ValueError):
 
 @dataclass
 class AudioInfo:
+    """Basic facts about an audio file, collected while validating it."""
+
     path: Path
     duration_s: float
     sample_rate: int

@@ -51,6 +51,7 @@ def chunk_audio(
     chunk_start_s = words.loc[0, "start_s"]
 
     def close_chunk(end_idx: int, chunk_end_s: float) -> None:
+        """Slice out the words and audio samples for the chunk in progress and save it."""
         chunk_words = words.loc[chunk_start_idx:end_idx].reset_index(drop=True)
         start_sample = int(chunk_start_s * sample_rate)
         end_sample = int(chunk_end_s * sample_rate)

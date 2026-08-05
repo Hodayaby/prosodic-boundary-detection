@@ -7,6 +7,7 @@ and must never be dropped in favor of only the thresholded decision.
 
 import pandas as pd
 
+# The exact column order every output table must follow.
 OUTPUT_COLUMNS = (
     "word",
     "start_s",
@@ -17,6 +18,7 @@ OUTPUT_COLUMNS = (
     "chunk_id",
 )
 
+# The expected data type for each column above.
 OUTPUT_DTYPES = {
     "word": "object",
     "start_s": "float64",

@@ -54,6 +54,8 @@ class BIUJobError(RuntimeError):
 
 @dataclass
 class BIUCredentials:
+    """Login details for the BIU lab account. password is hidden from repr/logs."""
+
     host: str
     username: str
     password: str = field(repr=False)  # keep out of repr/logs
@@ -61,6 +63,8 @@ class BIUCredentials:
 
 @dataclass
 class JobStatus:
+    """The SLURM job's id and its current state (e.g. PENDING, RUNNING, COMPLETED, FAILED, UNKNOWN)."""
+
     slurm_job_id: str
     state: str  # e.g. PENDING, RUNNING, COMPLETED, FAILED, UNKNOWN
 
@@ -107,6 +111,7 @@ python {REMOTE_ENTRY_POINT} --job-dir {shlex.quote(job_dir)}
 
 
 def _parse_sbatch_job_id(sbatch_output: str) -> str:
+    """Pull the numeric job ID out of sbatch's "Submitted batch job 12345" output."""
     match = re.search(r"Submitted batch job (\d+)", sbatch_output)
     if not match:
         raise BIUJobError(f"Could not parse SLURM job ID from sbatch output: {sbatch_output!r}")
@@ -126,6 +131,7 @@ def _parse_sacct_state(sacct_output: str) -> str:
 
 
 def _chunk_to_wav_bytes(chunk: AudioChunk, sample_rate: int) -> bytes:
+    """Encode one audio chunk as an in-memory WAV file, ready to upload."""
     buffer = io.BytesIO()
     sf.write(buffer, chunk.samples, sample_rate, format="WAV", subtype="PCM_16")
     return buffer.getvalue()
@@ -163,6 +169,10 @@ def connect(credentials: BIUCredentials):
 
 
 def _run_command(ssh: paramiko.SSHClient, command: str) -> str:
+    """Run one shell command over the SSH connection and return its output.
+
+    Raises BIUJobError if the command exits with a non-zero status.
+    """
     stdin, stdout, stderr = ssh.exec_command(command)
     exit_status = stdout.channel.recv_exit_status()
     out = stdout.read().decode()
@@ -202,11 +212,13 @@ def upload_job(ssh: paramiko.SSHClient, chunks: List[AudioChunk], sample_rate: i
 
 
 def submit_slurm_job(ssh: paramiko.SSHClient, job_dir: str) -> str:
+    """Submit the already-uploaded job.slurm script and return the new SLURM job ID."""
     output = _run_command(ssh, f"cd {shlex.quote(job_dir)} && sbatch job.slurm")
     return _parse_sbatch_job_id(output)
 
 
 def poll_job_status(ssh: paramiko.SSHClient, slurm_job_id: str) -> JobStatus:
+    """Ask SLURM for this job's current state, one single check (no retry)."""
     command = f"sacct -j {shlex.quote(slurm_job_id)} --format=State --noheader --parsable2"
     output = _run_command(ssh, command)
     return JobStatus(slurm_job_id=slurm_job_id, state=_parse_sacct_state(output))
@@ -241,6 +253,7 @@ def poll_job_status_with_retry(
 
 
 def download_result(ssh: paramiko.SSHClient, job_dir: str, local_path: Path) -> None:
+    """Copy the finished job's result.csv from BIU down to local_path."""
     sftp = ssh.open_sftp()
     try:
         remote_path = f"{job_dir}/result.csv"
@@ -255,9 +268,12 @@ def download_result(ssh: paramiko.SSHClient, job_dir: str, local_path: Path) -> 
 
 
 def cleanup_job(ssh: paramiko.SSHClient, job_dir: str) -> None:
-    # TODO: this runs even when the job failed/timed out, deleting
-    # job_%j.out/.err before anyone can look at why. Consider keeping
-    # failed job dirs around and only cleaning up on success.
+    """Delete the job's remote directory once we're done with it.
+
+    TODO: this runs even when the job failed/timed out, deleting
+    job_%j.out/.err before anyone can look at why. Consider keeping
+    failed job dirs around and only cleaning up on success.
+    """
     _run_command(ssh, f"rm -rf {shlex.quote(job_dir)}")
 
 
