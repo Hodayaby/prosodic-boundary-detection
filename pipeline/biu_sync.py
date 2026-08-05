@@ -255,6 +255,9 @@ def download_result(ssh: paramiko.SSHClient, job_dir: str, local_path: Path) -> 
 
 
 def cleanup_job(ssh: paramiko.SSHClient, job_dir: str) -> None:
+    # TODO(KAN-68): this runs even when the job failed/timed out, deleting
+    # job_%j.out/.err before anyone can look at why. Consider keeping
+    # failed job dirs around and only cleaning up on success.
     _run_command(ssh, f"rm -rf {shlex.quote(job_dir)}")
 
 
