@@ -1,8 +1,11 @@
 """Input validation for the boundary-detection pipeline (KAN-46).
 
-Validates the two things a job can receive before the pipeline runs:
+Validates the two things every job must receive before the pipeline runs:
   1. an audio file (exists, loadable, non-empty, within duration bounds)
-  2. an optional transcript/word-timestamp CSV (has the required columns)
+  2. a transcript/word-timestamp CSV (has word/start/end columns)
+
+Both are required - the pipeline does not run ASR to generate its own
+transcript, so a caller must supply one.
 
 This stage only checks structure, so it can fail fast before any
 GPU/model work starts. Semantic checks against the audio itself
@@ -13,13 +16,20 @@ preprocessed and chunked.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, Union
 
 import librosa
 import pandas as pd
 
 SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
-REQUIRED_TRANSCRIPT_COLUMNS = ("word", "start_s", "end_s")
+
+# canonical column name -> substring used to recognize it if the exact
+# canonical name isn't present (case-insensitive)
+TRANSCRIPT_COLUMN_KEYWORDS = {
+    "word": "word",
+    "start_s": "start",
+    "end_s": "end",
+}
 
 MIN_DURATION_S = 0.1
 MAX_DURATION_S = 4 * 60 * 60  # sanity ceiling, not a hard product limit
@@ -73,6 +83,46 @@ def validate_audio(audio_path: Union[str, Path]) -> AudioInfo:
     return AudioInfo(path=path, duration_s=duration_s, sample_rate=sample_rate, num_channels=num_channels)
 
 
+def _resolve_transcript_columns(df: pd.DataFrame, filename: str) -> Dict[str, str]:
+    """Map each canonical column name to the actual column in df that represents it.
+
+    Tries an exact (case-insensitive) name match first - this is what real
+    exports like data/splits/*.csv use, and it avoids ambiguity with columns
+    like 'word_index' or 'global_word_index' that also contain "word". Only
+    falls back to substring matching for files that use different naming
+    (e.g. 'Start_Time', 'End'), and refuses to guess if that's ambiguous.
+    """
+    resolved: Dict[str, str] = {}
+    claimed: Dict[str, str] = {}  # actual column -> canonical name that claimed it
+
+    for canonical, keyword in TRANSCRIPT_COLUMN_KEYWORDS.items():
+        exact = [c for c in df.columns if c.lower() == canonical.lower()]
+        candidates = exact or [c for c in df.columns if keyword in c.lower()]
+
+        if not candidates:
+            raise InputValidationError(
+                f"Transcript CSV '{filename}' has no column for '{canonical}' "
+                f"(expected a column named '{canonical}', or containing '{keyword}'). "
+                f"Found columns: {list(df.columns)}"
+            )
+        if len(candidates) > 1:
+            raise InputValidationError(
+                f"Transcript CSV '{filename}' has more than one column that could be "
+                f"'{canonical}': {candidates}. Rename so only one contains '{keyword}'."
+            )
+
+        col = candidates[0]
+        if col in claimed:
+            raise InputValidationError(
+                f"Transcript CSV '{filename}': column '{col}' matches both "
+                f"'{claimed[col]}' and '{canonical}'. Rename columns so each is unambiguous."
+            )
+        claimed[col] = canonical
+        resolved[canonical] = col
+
+    return resolved
+
+
 def validate_transcript_csv(csv_path: Union[str, Path]) -> pd.DataFrame:
     path = Path(csv_path)
 
@@ -84,12 +134,8 @@ def validate_transcript_csv(csv_path: Union[str, Path]) -> pd.DataFrame:
     except Exception as exc:
         raise InputValidationError(f"Could not read transcript CSV '{path.name}': {exc}") from exc
 
-    missing = [c for c in REQUIRED_TRANSCRIPT_COLUMNS if c not in df.columns]
-    if missing:
-        raise InputValidationError(
-            f"Transcript CSV '{path.name}' is missing required columns: {missing}. "
-            f"Required columns: {list(REQUIRED_TRANSCRIPT_COLUMNS)}"
-        )
+    column_map = _resolve_transcript_columns(df, path.name)
+    df = df.rename(columns={actual: canonical for canonical, actual in column_map.items()})
 
     if df.empty:
         raise InputValidationError(f"Transcript CSV '{path.name}' has no rows")
@@ -106,14 +152,11 @@ def validate_transcript_csv(csv_path: Union[str, Path]) -> pd.DataFrame:
     return df
 
 
-def validate_input(
-    audio_path: Union[str, Path],
-    transcript_csv_path: Optional[Union[str, Path]] = None,
-) -> AudioInfo:
-    """Validate a job's input before the pipeline runs. Raises InputValidationError on failure."""
+def validate_input(audio_path: Union[str, Path], transcript_csv_path: Union[str, Path]) -> AudioInfo:
+    """Validate a job's input before the pipeline runs. Raises InputValidationError on failure.
+
+    Both audio and transcript are required - see module docstring.
+    """
     audio_info = validate_audio(audio_path)
-
-    if transcript_csv_path is not None:
-        validate_transcript_csv(transcript_csv_path)
-
+    validate_transcript_csv(transcript_csv_path)
     return audio_info
