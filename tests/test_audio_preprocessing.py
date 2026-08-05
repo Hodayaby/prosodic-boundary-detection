@@ -24,6 +24,6 @@ def test_16k_mono_input_stays_16k_mono(make_wav):
 
 def test_composes_with_validate_audio(make_wav):
     path = make_wav(duration_s=2.0, sr=44100, n_channels=2)
-    validate_audio(path)  # KAN-46 gate, should not raise
-    result = preprocess_audio(path)  # KAN-56, consumes the same path
+    validate_audio(path)  # structural validation gate, should not raise
+    result = preprocess_audio(path)  # resampling, consumes the same path
     assert result.sample_rate == TARGET_SAMPLE_RATE

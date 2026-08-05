@@ -1,14 +1,14 @@
-"""SSH/SFTP sync to BIU + SLURM job submission and polling (KAN-68).
+"""SSH/SFTP sync to BIU + SLURM job submission and polling.
 
 Runs on the orchestrator after audio has been validated, preprocessed,
-chunked and aligned (KAN-46 -> KAN-56 -> KAN-50 -> KAN-57). Uploads the
-chunks to a per-job directory on BIU, submits a SLURM job that runs
-classification + merge + threshold + QC (KAN-51/58/59 - the remote
-entry point REMOTE_ENTRY_POINT is their deliverable), polls until it
-finishes, downloads the final result table, and cleans up.
+chunked, and aligned to the transcript. Uploads the chunks to a
+per-job directory on BIU, submits a SLURM job that runs classification,
+merges predictions, applies the threshold, and runs quality checks
+(REMOTE_ENTRY_POINT is that remote script), polls until it finishes,
+downloads the final result table, and cleans up.
 
 Credentials are held only for the duration of run_biu_job() and are
-never written to disk or logged - see KAN-68's security notes.
+never written to disk or logged.
 
 Pure/testable logic (time estimate, script rendering, output parsing)
 is separated from the paramiko network calls so it can be unit tested
@@ -34,7 +34,7 @@ import soundfile as sf
 from pipeline.chunker import AudioChunk
 
 REMOTE_JOBS_DIR = "pipeline_jobs"
-REMOTE_ENTRY_POINT = "run_pipeline_job.py"  # BIU-side script from KAN-51/58/59, takes --job-dir
+REMOTE_ENTRY_POINT = "run_pipeline_job.py"  # BIU-side script: classify, merge, threshold, QC; takes --job-dir
 SSH_CONNECT_TIMEOUT_S = 15
 
 MIN_JOB_TIME_S = 15 * 60
@@ -255,7 +255,7 @@ def download_result(ssh: paramiko.SSHClient, job_dir: str, local_path: Path) -> 
 
 
 def cleanup_job(ssh: paramiko.SSHClient, job_dir: str) -> None:
-    # TODO(KAN-68): this runs even when the job failed/timed out, deleting
+    # TODO: this runs even when the job failed/timed out, deleting
     # job_%j.out/.err before anyone can look at why. Consider keeping
     # failed job dirs around and only cleaning up on success.
     _run_command(ssh, f"rm -rf {shlex.quote(job_dir)}")

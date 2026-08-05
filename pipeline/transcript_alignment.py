@@ -1,12 +1,12 @@
-"""Transcript validation and alignment to audio (KAN-57).
+"""Transcript validation and alignment to audio.
 
-Runs on the orchestrator, right after chunking (KAN-50) and before the
-chunks get uploaded to BIU (KAN-68). Catches problems KAN-46's
-structural checks can't see: timestamps that exceed the actual audio
-duration, timestamps that aren't monotonic, and chunks whose word list
-doesn't line up with the chunk's own declared time span - exactly the
-kind of mismatch that chunk_audio() would otherwise silently truncate
-instead of erroring on.
+Runs on the orchestrator, right after chunking and before the chunks
+get uploaded to the remote server. Catches problems the earlier,
+structure-only input validation can't see: timestamps that exceed the
+actual audio duration, timestamps that aren't monotonic, and chunks
+whose word list doesn't line up with the chunk's own declared time
+span - exactly the kind of mismatch that chunk_audio() would otherwise
+silently truncate instead of erroring on.
 """
 
 from typing import List
@@ -29,6 +29,7 @@ def validate_alignment(audio: PreprocessedAudio, transcript: pd.DataFrame, chunk
 
 
 def _validate_within_duration(audio: PreprocessedAudio, transcript: pd.DataFrame) -> None:
+    """Reject a transcript whose last word ends after the audio actually finishes."""
     if transcript.empty:
         return
 
@@ -41,6 +42,7 @@ def _validate_within_duration(audio: PreprocessedAudio, transcript: pd.DataFrame
 
 
 def _validate_monotonic(transcript: pd.DataFrame) -> None:
+    """Reject a transcript where a word starts before the previous word did."""
     if len(transcript) < 2:
         return
 
@@ -57,6 +59,9 @@ def _validate_monotonic(transcript: pd.DataFrame) -> None:
 
 
 def _validate_chunk_alignment(audio: PreprocessedAudio, chunks: List[AudioChunk]) -> None:
+    """Reject a chunk whose words fall outside its own time span, or whose audio
+    slice length doesn't match that time span - both signs the chunker's math
+    and the transcript's timestamps disagree with each other."""
     for chunk in chunks:
         if chunk.words.empty:
             continue

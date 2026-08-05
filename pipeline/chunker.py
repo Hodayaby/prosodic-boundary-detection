@@ -1,11 +1,11 @@
-"""Long-audio chunker for the boundary-detection pipeline (KAN-50).
+"""Long-audio chunker for the boundary-detection pipeline.
 
 Splits preprocessed audio into <=MAX_CHUNK_DURATION_S chunks, cutting
 only between words (never mid-word) using the validated transcript's
-start_s/end_s. Deliberately no overlap between chunks - see KAN-50:
-past error analysis didn't find a meaningful concentration of errors
-at chunk edges, and non-overlapping chunks keep the merge step
-(KAN-51) simple, since each word belongs to exactly one chunk.
+start_s/end_s. Deliberately no overlap between chunks: past error
+analysis didn't find a meaningful concentration of errors at chunk
+edges, and non-overlapping chunks keep the later merge-predictions
+step simple, since each word belongs to exactly one chunk.
 """
 
 from dataclasses import dataclass
@@ -21,6 +21,8 @@ MAX_CHUNK_DURATION_S = 30.0
 
 @dataclass
 class AudioChunk:
+    """One <=30s slice of audio plus the transcript words that fall inside it."""
+
     chunk_id: str
     chunk_offset_s: float  # this chunk's start time in the original, global timeline
     end_s: float  # this chunk's end time in the global timeline
@@ -36,7 +38,7 @@ def chunk_audio(
     """Split audio + transcript into <=max_duration_s chunks, splitting only between words.
 
     transcript must have word/start_s/end_s columns, e.g. as returned by
-    validate_transcript_csv (KAN-46). Every word ends up in exactly one chunk.
+    validate_transcript_csv. Every word ends up in exactly one chunk.
     """
     if transcript.empty:
         return []

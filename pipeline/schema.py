@@ -1,4 +1,4 @@
-"""Canonical output schema for the boundary-detection pipeline (KAN-52).
+"""Canonical output schema for the boundary-detection pipeline.
 
 Every pipeline stage that produces or consumes the final result table must
 use exactly these columns. boundary_probability is the raw model output
