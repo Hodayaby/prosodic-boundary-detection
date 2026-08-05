@@ -16,6 +16,9 @@ st.set_page_config(page_title="Prosodic Boundary Detection", layout="centered")
 st.title("Prosodic Boundary Detection")
 st.caption("Upload an audio file and its word-level transcript to detect sentence boundaries.")
 
+# Step 1: BIU login fields. Collected here but not sent anywhere yet -
+# run_pipeline() will use these once the server connection is built;
+# today they're only used to unlock the Run button below.
 st.subheader("1. Connect to the BIU lab server")
 st.caption(
     "Not wired up yet - the pipeline currently runs with placeholder data regardless "
@@ -26,14 +29,18 @@ biu_email = st.text_input("Lab email")
 biu_password = st.text_input("Lab password", type="password")
 credentials = {"email": biu_email, "password": biu_password}
 
+# Step 2: the two files every pipeline job needs.
 st.subheader("2. Upload input")
 audio_file = st.file_uploader("Audio file", type=["wav", "mp3", "m4a", "flac", "ogg"])
 transcript_file = st.file_uploader("Transcript CSV (word, start_s, end_s)", type=["csv"])
 
+# Run stays disabled until every required field is filled in.
 ready_to_run = bool(biu_email and biu_password and audio_file and transcript_file)
 run_clicked = st.button("Run", type="primary", disabled=not ready_to_run)
 
 if run_clicked:
+    # Streamlit's uploaded files live in memory; write them to a temp
+    # folder so the pipeline functions (which expect file paths) can read them.
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
         audio_path = tmp_dir / audio_file.name

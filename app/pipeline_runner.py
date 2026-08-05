@@ -28,13 +28,17 @@ def run_pipeline(
     Raises InputValidationError (from pipeline.input_validation) if the
     inputs are invalid - callers should catch that and show it to the user.
     """
+    # Step 1: fail fast on a bad file before doing any real work.
     validate_audio(audio_path)
     transcript_df = validate_transcript_csv(transcript_csv_path)
 
+    # Step 2: match the audio format the model was trained on.
     preprocess_audio(audio_path)  # resamples to 16kHz mono; not yet consumed further
 
+    # Step 3: the actual prediction, currently a stand-in for the real server call.
     predictions_df = run_on_server(transcript_df, credentials)
 
+    # Step 4: combine the transcript with its predictions into the final table.
     output_df = pd.concat([transcript_df.reset_index(drop=True), predictions_df], axis=1)
     output_df = output_df[list(OUTPUT_COLUMNS)]
 
