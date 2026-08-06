@@ -49,7 +49,16 @@ TERMINAL_FAILURE_STATES = {"FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY", "N
 
 
 class BIUJobError(RuntimeError):
-    """Raised when connecting to BIU, or a step of the remote job, fails. Message is user-facing."""
+    """Raised when connecting to BIU, or a step of the remote job, fails. Message is user-facing.
+
+    log_paths (if any) points to local copies of the job's SLURM stdout/stderr,
+    downloaded before the remote job directory was cleaned up - see
+    download_logs() and run_biu_job()'s local_log_dir parameter.
+    """
+
+    def __init__(self, message: str, log_paths: Optional[List[Path]] = None):
+        super().__init__(message)
+        self.log_paths: List[Path] = log_paths or []
 
 
 @dataclass
@@ -267,12 +276,40 @@ def download_result(ssh: paramiko.SSHClient, job_dir: str, local_path: Path) -> 
         sftp.close()
 
 
+def download_logs(ssh: paramiko.SSHClient, job_dir: str, local_dir: Path) -> List[Path]:
+    """Best-effort download of the SLURM stdout/stderr (job_*.out/.err) from job_dir.
+
+    Called on failure/timeout, before cleanup_job() deletes the remote
+    directory, so the user has something to look at instead of just
+    "job failed". Swallows its own errors - a logs-download problem
+    should never mask the original failure that triggered it.
+    """
+    local_dir.mkdir(parents=True, exist_ok=True)
+    downloaded: List[Path] = []
+
+    try:
+        sftp = ssh.open_sftp()
+        try:
+            for remote_name in sftp.listdir(job_dir):
+                if remote_name.endswith(".out") or remote_name.endswith(".err"):
+                    local_path = local_dir / remote_name
+                    sftp.get(f"{job_dir}/{remote_name}", str(local_path))
+                    downloaded.append(local_path)
+        finally:
+            sftp.close()
+    except Exception:
+        pass
+
+    return downloaded
+
+
 def cleanup_job(ssh: paramiko.SSHClient, job_dir: str) -> None:
     """Delete the job's remote directory once we're done with it.
 
-    TODO: this runs even when the job failed/timed out, deleting
-    job_%j.out/.err before anyone can look at why. Consider keeping
-    failed job dirs around and only cleaning up on success.
+    Deliberately runs even after failure/timeout - BIU is a shared
+    filesystem and KAN-68 explicitly calls for not leaving orphaned
+    job directories behind. Call download_logs() first (as run_biu_job()
+    does) if the logs need to survive past this point.
     """
     _run_command(ssh, f"rm -rf {shlex.quote(job_dir)}")
 
@@ -285,8 +322,14 @@ def run_biu_job(
     email: Optional[str] = None,
     poll_interval_s: float = 10.0,
     timeout_s: float = MAX_JOB_TIME_S + 300,
+    local_log_dir: Optional[Path] = None,
 ) -> pd.DataFrame:
     """Upload chunks, run the SLURM job on BIU, wait for it, and return the final result table.
+
+    On failure or timeout, downloads job_*.out/.err into local_log_dir (if
+    given) before the remote job directory is cleaned up, and attaches
+    their paths to the raised BIUJobError.log_paths so the caller (KAN-61)
+    can offer them to the user (KAN-63/64) instead of just an error string.
 
     Raises BIUJobError on connection failure, job failure, or timeout.
     """
@@ -302,9 +345,14 @@ def run_biu_job(
                 if status.state == "COMPLETED":
                     break
                 if status.state in TERMINAL_FAILURE_STATES:
-                    raise BIUJobError(f"SLURM job {slurm_job_id} ended with state {status.state}")
+                    log_paths = download_logs(ssh, job_dir, local_log_dir) if local_log_dir else []
+                    raise BIUJobError(f"SLURM job {slurm_job_id} ended with state {status.state}", log_paths=log_paths)
                 if time.monotonic() - start > timeout_s:
-                    raise BIUJobError(f"Timed out waiting for SLURM job {slurm_job_id} (last state: {status.state})")
+                    log_paths = download_logs(ssh, job_dir, local_log_dir) if local_log_dir else []
+                    raise BIUJobError(
+                        f"Timed out waiting for SLURM job {slurm_job_id} (last state: {status.state})",
+                        log_paths=log_paths,
+                    )
 
                 time.sleep(poll_interval_s)
 

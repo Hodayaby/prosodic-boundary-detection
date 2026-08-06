@@ -17,6 +17,7 @@ from pipeline.biu_sync import (
     build_slurm_script,
     cleanup_job,
     connect,
+    download_logs,
     download_result,
     estimate_slurm_time,
     poll_job_status,
@@ -179,6 +180,27 @@ def test_download_result_raises_biujoberror_when_missing(tmp_path):
         download_result(ssh, "pipeline_jobs/abc", tmp_path / "result.csv")
 
 
+def test_download_logs_downloads_out_and_err_files(tmp_path):
+    ssh = MagicMock()
+    sftp = MagicMock()
+    sftp.listdir.return_value = ["job_42.out", "job_42.err", "chunk_0.wav", "chunk_0_words.csv"]
+    ssh.open_sftp.return_value = sftp
+
+    downloaded = download_logs(ssh, "pipeline_jobs/abc", tmp_path)
+
+    assert {p.name for p in downloaded} == {"job_42.out", "job_42.err"}
+    assert sftp.get.call_count == 2  # only the log files, not the wav/csv
+    sftp.close.assert_called_once()
+
+
+def test_download_logs_returns_empty_list_on_error_instead_of_raising(tmp_path):
+    ssh = MagicMock()
+    ssh.open_sftp.side_effect = OSError("connection lost")
+
+    downloaded = download_logs(ssh, "pipeline_jobs/abc", tmp_path)
+    assert downloaded == []  # best-effort - must not raise and mask the real failure
+
+
 def test_cleanup_job_runs_rm_rf():
     ssh = MagicMock()
     ssh.exec_command.return_value = _mock_exec_result(0)
@@ -281,6 +303,51 @@ def test_run_biu_job_raises_and_still_cleans_up_on_failed_state(monkeypatch, tmp
         biu_sync.run_biu_job(creds, [_make_chunk()], tmp_path / "result.csv", poll_interval_s=0)
 
     assert cleanup_calls == ["pipeline_jobs/job1"]  # cleanup still ran despite the failure
+
+
+def test_run_biu_job_downloads_logs_before_cleanup_on_failure(monkeypatch, tmp_path):
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "upload_job", lambda ssh, chunks, sample_rate, email: "pipeline_jobs/job1")
+    monkeypatch.setattr(biu_sync, "submit_slurm_job", lambda ssh, job_dir: "42")
+    monkeypatch.setattr(biu_sync, "poll_job_status_with_retry", lambda ssh, job_id: JobStatus(job_id, "FAILED"))
+
+    call_order = []
+    fake_log_paths = [tmp_path / "logs" / "job_42.out", tmp_path / "logs" / "job_42.err"]
+    monkeypatch.setattr(
+        biu_sync, "download_logs",
+        lambda ssh, job_dir, local_dir: call_order.append("download_logs") or fake_log_paths,
+    )
+    monkeypatch.setattr(biu_sync, "cleanup_job", lambda ssh, job_dir: call_order.append("cleanup_job"))
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    with pytest.raises(BIUJobError) as exc_info:
+        biu_sync.run_biu_job(
+            creds, [_make_chunk()], tmp_path / "result.csv",
+            poll_interval_s=0, local_log_dir=tmp_path / "logs",
+        )
+
+    assert exc_info.value.log_paths == fake_log_paths
+    assert call_order == ["download_logs", "cleanup_job"]  # logs fetched before the dir is wiped
+
+
+def test_run_biu_job_skips_log_download_when_no_local_log_dir_given(monkeypatch, tmp_path):
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "upload_job", lambda ssh, chunks, sample_rate, email: "pipeline_jobs/job1")
+    monkeypatch.setattr(biu_sync, "submit_slurm_job", lambda ssh, job_dir: "42")
+    monkeypatch.setattr(biu_sync, "poll_job_status_with_retry", lambda ssh, job_id: JobStatus(job_id, "FAILED"))
+    monkeypatch.setattr(biu_sync, "cleanup_job", lambda ssh, job_dir: None)
+
+    download_logs_calls = []
+    monkeypatch.setattr(biu_sync, "download_logs", lambda *a, **kw: download_logs_calls.append(1))
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    with pytest.raises(BIUJobError) as exc_info:
+        biu_sync.run_biu_job(creds, [_make_chunk()], tmp_path / "result.csv", poll_interval_s=0)  # no local_log_dir
+
+    assert download_logs_calls == []
+    assert exc_info.value.log_paths == []
 
 
 class _FakeConnectCtx:
