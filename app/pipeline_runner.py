@@ -1,4 +1,4 @@
-"""Runs the full pipeline end to end for one uploaded job."""
+"""Adapts the UI's raw text inputs into the real pipeline and runs it."""
 
 import sys
 from pathlib import Path
@@ -8,39 +8,33 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, for the `pipeline` package
 
-from pipeline.input_validation import validate_audio, validate_transcript_csv
-from pipeline.audio_preprocessing import preprocess_audio
-from pipeline.schema import OUTPUT_COLUMNS, validate_output_schema
-from server_connection import run_on_server
+from pipeline.biu_sync import BIUCredentials
+from pipeline.orchestrator import PipelineError, run_pipeline_job
+
+__all__ = ["run_pipeline", "PipelineError"]
 
 
 def run_pipeline(
     audio_path: Union[str, Path],
     transcript_csv_path: Union[str, Path],
-    credentials: Optional[dict] = None,
+    host: str,
+    username: str,
+    password: str,
+    local_result_path: Union[str, Path],
+    local_log_dir: Optional[Union[str, Path]] = None,
 ) -> pd.DataFrame:
-    """Validate, preprocess, run the model, and return the final output table.
+    """Build BIU login credentials from the raw UI fields and run the real pipeline.
 
-    credentials (email/password for the BIU lab account) is threaded through
-    to run_on_server() for when the real SSH connection is built - the stub
-    ignores it today.
-
-    Raises InputValidationError (from pipeline.input_validation) if the
-    inputs are invalid - callers should catch that and show it to the user.
+    Raises PipelineError on any stage's failure - the error carries
+    which stage failed (.stage) and, for a BIU-side failure, local
+    copies of the job's log files (.log_paths).
     """
-    # Step 1: fail fast on a bad file before doing any real work.
-    validate_audio(audio_path)
-    transcript_df = validate_transcript_csv(transcript_csv_path)
-
-    # Step 2: match the audio format the model was trained on.
-    preprocess_audio(audio_path)  # resamples to 16kHz mono; not yet consumed further
-
-    # Step 3: the actual prediction, currently a stand-in for the real server call.
-    predictions_df = run_on_server(transcript_df, credentials)
-
-    # Step 4: combine the transcript with its predictions into the final table.
-    output_df = pd.concat([transcript_df.reset_index(drop=True), predictions_df], axis=1)
-    output_df = output_df[list(OUTPUT_COLUMNS)]
-
-    validate_output_schema(output_df)
-    return output_df
+    credentials = BIUCredentials(host=host, username=username, password=password)
+    return run_pipeline_job(
+        audio_path,
+        transcript_csv_path,
+        credentials,
+        Path(local_result_path),
+        email=username,
+        local_log_dir=Path(local_log_dir) if local_log_dir else None,
+    )

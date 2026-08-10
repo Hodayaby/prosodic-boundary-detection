@@ -8,26 +8,18 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, for the `pipeline` package
 
-from pipeline.input_validation import InputValidationError
-from pipeline_runner import run_pipeline
+from pipeline_runner import PipelineError, run_pipeline
 
 st.set_page_config(page_title="Prosodic Boundary Detection", layout="centered")
 
 st.title("Prosodic Boundary Detection")
 st.caption("Upload an audio file and its word-level transcript to detect sentence boundaries.")
 
-# Step 1: BIU login fields. Collected here but not sent anywhere yet -
-# run_pipeline() will use these once the server connection is built;
-# today they're only used to unlock the Run button below.
+# Step 1: BIU login. Used to open the real SSH connection when Run is clicked.
 st.subheader("1. Connect to the BIU lab server")
-st.caption(
-    "Not wired up yet - the pipeline currently runs with placeholder data regardless "
-    "of what's entered here. This is just the login UI, ready for when the real "
-    "server connection (SSH) is built."
-)
+biu_host = st.text_input("Server host (SSH address)")
 biu_email = st.text_input("Lab email")
 biu_password = st.text_input("Lab password", type="password")
-credentials = {"email": biu_email, "password": biu_password}
 
 # Step 2: the two files every pipeline job needs.
 st.subheader("2. Upload input")
@@ -35,7 +27,7 @@ audio_file = st.file_uploader("Audio file", type=["wav", "mp3", "m4a", "flac", "
 transcript_file = st.file_uploader("Transcript CSV (word, start_s, end_s)", type=["csv"])
 
 # Run stays disabled until every required field is filled in.
-ready_to_run = bool(biu_email and biu_password and audio_file and transcript_file)
+ready_to_run = bool(biu_host and biu_email and biu_password and audio_file and transcript_file)
 run_clicked = st.button("Run", type="primary", disabled=not ready_to_run)
 
 if run_clicked:
@@ -48,11 +40,25 @@ if run_clicked:
         audio_path.write_bytes(audio_file.getvalue())
         transcript_path.write_bytes(transcript_file.getvalue())
 
+        result_path = tmp_dir / "result.csv"
+        log_dir = tmp_dir / "logs"
+
         try:
-            with st.spinner("Running pipeline..."):
-                results_df = run_pipeline(audio_path, transcript_path, credentials)
-        except InputValidationError as exc:
-            st.error(str(exc))
+            with st.spinner("Running pipeline - this can take a while on a busy SLURM queue..."):
+                results_df = run_pipeline(
+                    audio_path,
+                    transcript_path,
+                    host=biu_host,
+                    username=biu_email,
+                    password=biu_password,
+                    local_result_path=result_path,
+                    local_log_dir=log_dir,
+                )
+        except PipelineError as exc:
+            st.error(f"Failed at stage '{exc.stage}': {exc}")
+            for log_path in exc.log_paths:
+                with st.expander(f"Log: {log_path.name}"):
+                    st.code(log_path.read_text(errors="replace"))
         else:
             st.success(f"Done - {len(results_df)} words processed.")
             st.dataframe(results_df, use_container_width=True)
