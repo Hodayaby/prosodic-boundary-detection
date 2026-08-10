@@ -307,9 +307,9 @@ def cleanup_job(ssh: paramiko.SSHClient, job_dir: str) -> None:
     """Delete the job's remote directory once we're done with it.
 
     Deliberately runs even after failure/timeout - BIU is a shared
-    filesystem and KAN-68 explicitly calls for not leaving orphaned
-    job directories behind. Call download_logs() first (as run_biu_job()
-    does) if the logs need to survive past this point.
+    filesystem, and orphaned job directories should never be left
+    behind. Call download_logs() first (as run_biu_job() does) if the
+    logs need to survive past this point.
     """
     _run_command(ssh, f"rm -rf {shlex.quote(job_dir)}")
 
@@ -328,8 +328,8 @@ def run_biu_job(
 
     On failure or timeout, downloads job_*.out/.err into local_log_dir (if
     given) before the remote job directory is cleaned up, and attaches
-    their paths to the raised BIUJobError.log_paths so the caller (KAN-61)
-    can offer them to the user (KAN-63/64) instead of just an error string.
+    their paths to the raised BIUJobError.log_paths so the orchestrator
+    can offer them to the user instead of just an error string.
 
     Raises BIUJobError on connection failure, job failure, or timeout.
     """

@@ -1,16 +1,16 @@
-"""Pipeline controller / orchestrator (KAN-61).
+"""Pipeline controller / orchestrator.
 
 Runs every stage for one job in order, on two machines:
 
-  input validation (KAN-46) -> audio preprocessing (KAN-56)
-  -> chunking (KAN-50) -> transcript alignment (KAN-57)
-  -> [SSH/SFTP to BIU] -> classify + merge + threshold + QC (KAN-68/51/58/59)
+  input validation -> audio preprocessing
+  -> chunking -> transcript alignment
+  -> [SSH/SFTP to BIU] -> classify + merge + threshold + QC
 
 Each stage's own exception is caught and re-raised as PipelineError,
-tagged with which stage failed, so callers (the job API - KAN-60, the
-UI - KAN-63/64) don't need to know every stage's specific exception
-type to report a clear error. A stage that fails stops the job - later
-stages never run on bad input from an earlier one.
+tagged with which stage failed, so callers (the job API, the UI)
+don't need to know every stage's specific exception type to report a
+clear error. A stage that fails stops the job - later stages never
+run on bad input from an earlier one.
 """
 
 from pathlib import Path
@@ -56,7 +56,7 @@ def run_pipeline_job(
     email: Optional[str] = None,
     local_log_dir: Optional[Path] = None,
 ) -> pd.DataFrame:
-    """Run one job end to end. Returns the final result table (KAN-52 schema).
+    """Run one job end to end. Returns the final result table (see pipeline/schema.py).
 
     Raises PipelineError on any stage's failure, with .stage identifying
     which one and .log_paths populated if it failed during biu_sync.
