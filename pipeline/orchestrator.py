@@ -60,6 +60,12 @@ def run_pipeline_job(
 
     Raises PipelineError on any stage's failure, with .stage identifying
     which one and .log_paths populated if it failed during biu_sync.
+
+    Input: audio_path, transcript_csv_path - the job's two input files;
+        biu_credentials - BIU login details; local_result_path - where to
+        save the final result table; email - optional SLURM notification
+        address; local_log_dir - where to save logs if biu_sync fails.
+    Output: the final result table as a DataFrame.
     """
     try:
         validate_audio(audio_path)

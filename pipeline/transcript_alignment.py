@@ -22,14 +22,23 @@ class AlignmentError(ValueError):
 
 
 def validate_alignment(audio: PreprocessedAudio, transcript: pd.DataFrame, chunks: List[AudioChunk]) -> None:
-    """Validate transcript-to-audio and transcript-to-chunk alignment. Raises AlignmentError on failure."""
+    """Validate transcript-to-audio and transcript-to-chunk alignment. Raises AlignmentError on failure.
+
+    Input: audio - preprocessed audio; transcript - its word-level transcript;
+        chunks - the audio split into chunks by chunk_audio().
+    Output: none. Raises AlignmentError if anything doesn't line up.
+    """
     _validate_within_duration(audio, transcript)
     _validate_monotonic(transcript)
     _validate_chunk_alignment(audio, chunks)
 
 
 def _validate_within_duration(audio: PreprocessedAudio, transcript: pd.DataFrame) -> None:
-    """Reject a transcript whose last word ends after the audio actually finishes."""
+    """Reject a transcript whose last word ends after the audio actually finishes.
+
+    Input: audio - preprocessed audio; transcript - its word-level transcript.
+    Output: none. Raises AlignmentError if a word ends past the audio's duration.
+    """
     if transcript.empty:
         return
 
@@ -42,7 +51,11 @@ def _validate_within_duration(audio: PreprocessedAudio, transcript: pd.DataFrame
 
 
 def _validate_monotonic(transcript: pd.DataFrame) -> None:
-    """Reject a transcript where a word starts before the previous word did."""
+    """Reject a transcript where a word starts before the previous word did.
+
+    Input: transcript - the word-level transcript to check.
+    Output: none. Raises AlignmentError on the first out-of-order start time found.
+    """
     if len(transcript) < 2:
         return
 
@@ -61,7 +74,11 @@ def _validate_monotonic(transcript: pd.DataFrame) -> None:
 def _validate_chunk_alignment(audio: PreprocessedAudio, chunks: List[AudioChunk]) -> None:
     """Reject a chunk whose words fall outside its own time span, or whose audio
     slice length doesn't match that time span - both signs the chunker's math
-    and the transcript's timestamps disagree with each other."""
+    and the transcript's timestamps disagree with each other.
+
+    Input: audio - preprocessed audio; chunks - the audio split into chunks.
+    Output: none. Raises AlignmentError on the first chunk that doesn't line up.
+    """
     for chunk in chunks:
         if chunk.words.empty:
             continue

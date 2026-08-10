@@ -35,7 +35,11 @@ class SchemaError(ValueError):
 
 
 def validate_output_schema(df: pd.DataFrame) -> None:
-    """Check that df has the required columns and that value ranges make sense."""
+    """Check that df has the required columns and that value ranges make sense.
+
+    Input: df - a result table to check.
+    Output: None. Raises SchemaError if df doesn't match the expected schema.
+    """
     missing = [c for c in OUTPUT_COLUMNS if c not in df.columns]
     if missing:
         raise SchemaError(f"Output table is missing required columns: {missing}")
@@ -51,6 +55,10 @@ def validate_output_schema(df: pd.DataFrame) -> None:
 
 
 def new_output_table() -> pd.DataFrame:
-    """An empty DataFrame with the correct columns and dtypes, ready to append rows to."""
+    """An empty DataFrame with the correct columns and dtypes, ready to append rows to.
+
+    Input: none.
+    Output: empty DataFrame with OUTPUT_COLUMNS in order and OUTPUT_DTYPES applied.
+    """
     empty = {col: pd.Series(dtype=dtype) for col, dtype in OUTPUT_DTYPES.items()}
     return pd.DataFrame(empty)[list(OUTPUT_COLUMNS)]
