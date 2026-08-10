@@ -1,4 +1,4 @@
-"""Input validation for the boundary-detection pipeline (KAN-46).
+"""Input validation for the boundary-detection pipeline.
 
 Validates the two things every job must receive before the pipeline runs:
   1. an audio file (exists, loadable, non-empty, within duration bounds)
@@ -10,8 +10,8 @@ transcript, so a caller must supply one.
 This stage only checks structure, so it can fail fast before any
 GPU/model work starts. Semantic checks against the audio itself
 (timestamps within duration, monotonicity, chunk alignment) belong to
-transcript alignment (KAN-57), which runs later once the audio has been
-preprocessed and chunked.
+the transcript_alignment module, which runs later once the audio has
+been preprocessed and chunked.
 """
 
 from dataclasses import dataclass
@@ -41,6 +41,8 @@ class InputValidationError(ValueError):
 
 @dataclass
 class AudioInfo:
+    """Basic facts about an audio file, collected while validating it."""
+
     path: Path
     duration_s: float
     sample_rate: int
@@ -48,6 +50,10 @@ class AudioInfo:
 
 
 def validate_audio(audio_path: Union[str, Path]) -> AudioInfo:
+    """Check that audio_path exists, is a supported format, and is a reasonable length.
+
+    Raises InputValidationError with a user-facing message on any problem.
+    """
     path = Path(audio_path)
 
     if not path.exists():
@@ -124,6 +130,11 @@ def _resolve_transcript_columns(df: pd.DataFrame, filename: str) -> Dict[str, st
 
 
 def validate_transcript_csv(csv_path: Union[str, Path]) -> pd.DataFrame:
+    """Load csv_path and check it has usable word/start_s/end_s columns and sane values.
+
+    Returns the CSV as a DataFrame with columns renamed to the canonical
+    word/start_s/end_s names. Raises InputValidationError on any problem.
+    """
     path = Path(csv_path)
 
     if not path.exists():

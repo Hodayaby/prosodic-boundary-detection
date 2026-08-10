@@ -1,4 +1,4 @@
-"""Audio preprocessing for the boundary-detection pipeline (KAN-56).
+"""Audio preprocessing for the boundary-detection pipeline.
 
 Resamples validated input audio to 16kHz mono - the exact convention
 already used at feature-extraction time in train_whisper_binary.py and
@@ -9,7 +9,7 @@ train/inference mismatch.
 Deliberately out of scope: silence trimming (would desync the
 transcript's start_s/end_s from the audio) and noise cleaning (no
 precedent in the existing codebase, and untested against the trained
-model). See KAN-56 for the reasoning.
+model).
 """
 
 from dataclasses import dataclass
@@ -24,6 +24,8 @@ TARGET_SAMPLE_RATE = 16000
 
 @dataclass
 class PreprocessedAudio:
+    """Audio ready for the rest of the pipeline: mono, resampled, with its own metadata."""
+
     samples: np.ndarray  # mono float32 waveform at TARGET_SAMPLE_RATE
     sample_rate: int
     duration_s: float
@@ -33,7 +35,7 @@ class PreprocessedAudio:
 def preprocess_audio(audio_path: Union[str, Path]) -> PreprocessedAudio:
     """Load audio_path and resample it to 16kHz mono.
 
-    Expects audio_path to have already passed validate_audio() (KAN-46) -
+    Expects audio_path to have already passed validate_audio() -
     this function does not re-check format or duration.
     """
     path = Path(audio_path)
