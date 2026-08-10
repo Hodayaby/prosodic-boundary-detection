@@ -7,3 +7,6 @@ numpy
 scikit-learn
 matplotlib
 jiwer
+streamlit
+paramiko
+soundfile
