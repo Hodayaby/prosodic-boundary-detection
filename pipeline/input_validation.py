@@ -52,6 +52,8 @@ class AudioInfo:
 def validate_audio(audio_path: Union[str, Path]) -> AudioInfo:
     """Check that audio_path exists, is a supported format, and is a reasonable length.
 
+    Input: audio_path - path to the audio file to check.
+    Output: AudioInfo with the file's duration, sample rate, and channel count.
     Raises InputValidationError with a user-facing message on any problem.
     """
     path = Path(audio_path)
@@ -97,6 +99,9 @@ def _resolve_transcript_columns(df: pd.DataFrame, filename: str) -> Dict[str, st
     like 'word_index' or 'global_word_index' that also contain "word". Only
     falls back to substring matching for files that use different naming
     (e.g. 'Start_Time', 'End'), and refuses to guess if that's ambiguous.
+
+    Input: df - the loaded transcript CSV; filename - used only in error messages.
+    Output: dict mapping canonical name ("word"/"start_s"/"end_s") to the actual column name in df.
     """
     resolved: Dict[str, str] = {}
     claimed: Dict[str, str] = {}  # actual column -> canonical name that claimed it
@@ -132,8 +137,9 @@ def _resolve_transcript_columns(df: pd.DataFrame, filename: str) -> Dict[str, st
 def validate_transcript_csv(csv_path: Union[str, Path]) -> pd.DataFrame:
     """Load csv_path and check it has usable word/start_s/end_s columns and sane values.
 
-    Returns the CSV as a DataFrame with columns renamed to the canonical
-    word/start_s/end_s names. Raises InputValidationError on any problem.
+    Input: csv_path - path to the transcript CSV to check.
+    Output: DataFrame with columns renamed to the canonical word/start_s/end_s names.
+    Raises InputValidationError on any problem.
     """
     path = Path(csv_path)
 
@@ -167,6 +173,9 @@ def validate_input(audio_path: Union[str, Path], transcript_csv_path: Union[str,
     """Validate a job's input before the pipeline runs. Raises InputValidationError on failure.
 
     Both audio and transcript are required - see module docstring.
+
+    Input: audio_path, transcript_csv_path - paths to the two required files.
+    Output: AudioInfo for the audio file (the transcript is checked but not returned here).
     """
     audio_info = validate_audio(audio_path)
     validate_transcript_csv(transcript_csv_path)

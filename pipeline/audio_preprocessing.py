@@ -37,6 +37,9 @@ def preprocess_audio(audio_path: Union[str, Path]) -> PreprocessedAudio:
 
     Expects audio_path to have already passed validate_audio() -
     this function does not re-check format or duration.
+
+    Input: audio_path - path to the audio file to load.
+    Output: PreprocessedAudio with the resampled mono waveform and its metadata.
     """
     path = Path(audio_path)
     samples, sample_rate = librosa.load(str(path), sr=TARGET_SAMPLE_RATE, mono=True)

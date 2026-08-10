@@ -82,7 +82,11 @@ class JobStatus:
 
 def estimate_slurm_time(num_chunks: int) -> str:
     """SLURM --time, scaled by job size: short for a single-file job, up to the
-    existing 2h ceiling (matching evaluate_test_model2.slurm) for large batches."""
+    existing 2h ceiling (matching evaluate_test_model2.slurm) for large batches.
+
+    Input: num_chunks - how many audio chunks this job will process.
+    Output: a SLURM-formatted time limit string, e.g. "00:25:00".
+    """
     seconds = OVERHEAD_S + num_chunks * PER_CHUNK_S
     seconds = max(MIN_JOB_TIME_S, min(seconds, MAX_JOB_TIME_S))
     hours, remainder = divmod(int(seconds), 3600)
@@ -92,7 +96,13 @@ def estimate_slurm_time(num_chunks: int) -> str:
 
 def build_slurm_script(job_id: str, job_dir: str, num_chunks: int, email: Optional[str] = None) -> str:
     """Render the SLURM script for this job, following the same directive
-    pattern as the existing evaluate_test_model2.slurm."""
+    pattern as the existing evaluate_test_model2.slurm.
+
+    Input: job_id - unique id for this job; job_dir - its remote directory;
+        num_chunks - how many chunks it will process; email - optional address
+        for SLURM's own start/end/fail notifications.
+    Output: the full contents of the job.slurm script, as a string.
+    """
     mail_lines = ""
     if email:
         mail_lines = f"#SBATCH --mail-user={email}\n#SBATCH --mail-type=BEGIN,END,FAIL\n"
@@ -120,7 +130,11 @@ python {REMOTE_ENTRY_POINT} --job-dir {shlex.quote(job_dir)}
 
 
 def _parse_sbatch_job_id(sbatch_output: str) -> str:
-    """Pull the numeric job ID out of sbatch's "Submitted batch job 12345" output."""
+    """Pull the numeric job ID out of sbatch's "Submitted batch job 12345" output.
+
+    Input: sbatch_output - the raw text sbatch printed after submitting the job.
+    Output: the job ID as a string. Raises BIUJobError if it can't be found.
+    """
     match = re.search(r"Submitted batch job (\d+)", sbatch_output)
     if not match:
         raise BIUJobError(f"Could not parse SLURM job ID from sbatch output: {sbatch_output!r}")
@@ -129,7 +143,11 @@ def _parse_sbatch_job_id(sbatch_output: str) -> str:
 
 def _parse_sacct_state(sacct_output: str) -> str:
     """sacct --format=State --noheader --parsable2 prints one line per job
-    step; states like 'CANCELLED by 12345' get the trailing detail stripped."""
+    step; states like 'CANCELLED by 12345' get the trailing detail stripped.
+
+    Input: sacct_output - the raw text sacct printed for this job.
+    Output: the plain state string (e.g. "RUNNING", "COMPLETED"), or "UNKNOWN" if empty.
+    """
     stripped = sacct_output.strip()
     if not stripped:
         return "UNKNOWN"
@@ -140,7 +158,11 @@ def _parse_sacct_state(sacct_output: str) -> str:
 
 
 def _chunk_to_wav_bytes(chunk: AudioChunk, sample_rate: int) -> bytes:
-    """Encode one audio chunk as an in-memory WAV file, ready to upload."""
+    """Encode one audio chunk as an in-memory WAV file, ready to upload.
+
+    Input: chunk - the audio chunk to encode; sample_rate - its sample rate.
+    Output: the WAV file's raw bytes.
+    """
     buffer = io.BytesIO()
     sf.write(buffer, chunk.samples, sample_rate, format="WAV", subtype="PCM_16")
     return buffer.getvalue()
@@ -156,6 +178,10 @@ def connect(credentials: BIUCredentials):
     host key should be pinned instead, load it via
     ssh.load_system_host_keys() and use RejectPolicy - a deliberate
     choice to revisit, not an oversight.
+
+    Input: credentials - BIU login details (host, username, password).
+    Output: an open paramiko SSHClient, via `with connect(creds) as ssh: ...`.
+    Raises BIUJobError if the connection or authentication fails.
     """
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -181,6 +207,9 @@ def _run_command(ssh: paramiko.SSHClient, command: str) -> str:
     """Run one shell command over the SSH connection and return its output.
 
     Raises BIUJobError if the command exits with a non-zero status.
+
+    Input: ssh - an open SSH connection; command - the shell command to run.
+    Output: the command's stdout text.
     """
     stdin, stdout, stderr = ssh.exec_command(command)
     exit_status = stdout.channel.recv_exit_status()
@@ -194,7 +223,12 @@ def _run_command(ssh: paramiko.SSHClient, command: str) -> str:
 
 
 def upload_job(ssh: paramiko.SSHClient, chunks: List[AudioChunk], sample_rate: int, email: Optional[str] = None) -> str:
-    """Create a per-job remote directory and upload chunk audio + the SLURM script. Returns the remote job_dir path."""
+    """Create a per-job remote directory and upload chunk audio + the SLURM script.
+
+    Input: ssh - an open SSH connection; chunks - audio chunks to upload;
+        sample_rate - their sample rate; email - optional SLURM notification address.
+    Output: the new remote job directory's path.
+    """
     job_id = uuid.uuid4().hex[:12]
     job_dir = f"{REMOTE_JOBS_DIR}/{job_id}"
 
@@ -221,13 +255,21 @@ def upload_job(ssh: paramiko.SSHClient, chunks: List[AudioChunk], sample_rate: i
 
 
 def submit_slurm_job(ssh: paramiko.SSHClient, job_dir: str) -> str:
-    """Submit the already-uploaded job.slurm script and return the new SLURM job ID."""
+    """Submit the already-uploaded job.slurm script and return the new SLURM job ID.
+
+    Input: ssh - an open SSH connection; job_dir - the remote job directory.
+    Output: the new SLURM job ID as a string.
+    """
     output = _run_command(ssh, f"cd {shlex.quote(job_dir)} && sbatch job.slurm")
     return _parse_sbatch_job_id(output)
 
 
 def poll_job_status(ssh: paramiko.SSHClient, slurm_job_id: str) -> JobStatus:
-    """Ask SLURM for this job's current state, one single check (no retry)."""
+    """Ask SLURM for this job's current state, one single check (no retry).
+
+    Input: ssh - an open SSH connection; slurm_job_id - the job to check.
+    Output: a JobStatus with the job's id and current state.
+    """
     command = f"sacct -j {shlex.quote(slurm_job_id)} --format=State --noheader --parsable2"
     output = _run_command(ssh, command)
     return JobStatus(slurm_job_id=slurm_job_id, state=_parse_sacct_state(output))
@@ -245,6 +287,11 @@ def poll_job_status_with_retry(
     Only retries exceptions raised while trying to poll. A job that legitimately
     reached a terminal FAILED state is a normal JobStatus return, not an
     exception - that's handled by the caller in run_biu_job(), unaffected by this.
+
+    Input: ssh - an open SSH connection; slurm_job_id - the job to check;
+        max_retries - how many extra attempts before giving up; retry_delay_s -
+        pause between attempts.
+    Output: a JobStatus. Raises BIUJobError if every attempt failed.
     """
     last_exc: Optional[Exception] = None
     for attempt in range(max_retries + 1):
@@ -262,7 +309,12 @@ def poll_job_status_with_retry(
 
 
 def download_result(ssh: paramiko.SSHClient, job_dir: str, local_path: Path) -> None:
-    """Copy the finished job's result.csv from BIU down to local_path."""
+    """Copy the finished job's result.csv from BIU down to local_path.
+
+    Input: ssh - an open SSH connection; job_dir - the remote job directory;
+        local_path - where to save the file locally.
+    Output: none (the file is written to local_path). Raises BIUJobError if missing.
+    """
     sftp = ssh.open_sftp()
     try:
         remote_path = f"{job_dir}/result.csv"
@@ -283,6 +335,10 @@ def download_logs(ssh: paramiko.SSHClient, job_dir: str, local_dir: Path) -> Lis
     directory, so the user has something to look at instead of just
     "job failed". Swallows its own errors - a logs-download problem
     should never mask the original failure that triggered it.
+
+    Input: ssh - an open SSH connection; job_dir - the remote job directory;
+        local_dir - where to save the downloaded log files.
+    Output: list of local paths actually downloaded (may be empty).
     """
     local_dir.mkdir(parents=True, exist_ok=True)
     downloaded: List[Path] = []
@@ -310,6 +366,9 @@ def cleanup_job(ssh: paramiko.SSHClient, job_dir: str) -> None:
     filesystem, and orphaned job directories should never be left
     behind. Call download_logs() first (as run_biu_job() does) if the
     logs need to survive past this point.
+
+    Input: ssh - an open SSH connection; job_dir - the remote job directory to delete.
+    Output: none.
     """
     _run_command(ssh, f"rm -rf {shlex.quote(job_dir)}")
 
@@ -332,6 +391,13 @@ def run_biu_job(
     can offer them to the user instead of just an error string.
 
     Raises BIUJobError on connection failure, job failure, or timeout.
+
+    Input: credentials - BIU login details; chunks - audio chunks to process;
+        local_result_path - where to save the final result table; sample_rate -
+        the chunks' sample rate; email - optional SLURM notification address;
+        poll_interval_s - seconds between status checks; timeout_s - give up
+        after this long; local_log_dir - where to save logs on failure.
+    Output: the final result table as a DataFrame.
     """
     with connect(credentials) as ssh:
         job_dir = upload_job(ssh, chunks, sample_rate=sample_rate, email=email)

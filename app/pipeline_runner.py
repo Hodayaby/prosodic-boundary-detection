@@ -28,6 +28,12 @@ def run_pipeline(
     Raises PipelineError on any stage's failure - the error carries
     which stage failed (.stage) and, for a BIU-side failure, local
     copies of the job's log files (.log_paths).
+
+    Input: audio_path, transcript_csv_path - the uploaded files' local paths;
+        host, username, password - BIU login details typed into the UI;
+        local_result_path - where to save the final result table;
+        local_log_dir - where to save logs if the BIU step fails.
+    Output: the final result table as a DataFrame.
     """
     credentials = BIUCredentials(host=host, username=username, password=password)
     return run_pipeline_job(

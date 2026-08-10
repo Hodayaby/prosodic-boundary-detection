@@ -39,6 +39,10 @@ def chunk_audio(
 
     transcript must have word/start_s/end_s columns, e.g. as returned by
     validate_transcript_csv. Every word ends up in exactly one chunk.
+
+    Input: audio - preprocessed audio; transcript - its word-level transcript;
+        max_duration_s - longest a single chunk is allowed to be.
+    Output: list of AudioChunk, covering the whole transcript in order.
     """
     if transcript.empty:
         return []
@@ -51,7 +55,12 @@ def chunk_audio(
     chunk_start_s = words.loc[0, "start_s"]
 
     def close_chunk(end_idx: int, chunk_end_s: float) -> None:
-        """Slice out the words and audio samples for the chunk in progress and save it."""
+        """Slice out the words and audio samples for the chunk in progress and save it.
+
+        Input: end_idx - index (into words) of the last word in this chunk;
+            chunk_end_s - this chunk's end time in seconds.
+        Output: none (appends the new AudioChunk to the outer chunks list).
+        """
         chunk_words = words.loc[chunk_start_idx:end_idx].reset_index(drop=True)
         start_sample = int(chunk_start_s * sample_rate)
         end_sample = int(chunk_end_s * sample_rate)
