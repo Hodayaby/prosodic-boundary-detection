@@ -1,0 +1,257 @@
+/* Visual theme only - no functional/logic code lives here.
+   Cold minimalist palette: white background, black text, purple/blue accents. */
+
+:root {
+    --ink: #12121a;
+    --paper: #ffffff;
+    --violet: #6c5ce7;
+    --blue: #3b82f6;
+    --hairline: #e6e6ef;
+    --muted: #6b6b7a;
+}
+
+/* Base page */
+[data-testid="stAppViewContainer"] {
+    background: var(--paper);
+}
+[data-testid="stHeader"] {
+    background: transparent;
+}
+.block-container {
+    padding-top: 2rem;
+    max-width: 720px;
+}
+html, body, [class*="css"] {
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+/* ---------- Hero ---------- */
+.hero {
+    position: relative;
+    text-align: center;
+    padding: 1.5rem 0 2.5rem 0;
+}
+
+.orbit-wrap {
+    position: relative;
+    width: 180px;
+    height: 180px;
+    margin: 0 auto 1.5rem auto;
+}
+
+/* Wide, asymmetric pastel cloud in the top corner of the intro screen only,
+   reaching down toward the brain - not a small centered circle. Built from
+   a few overlapping, offset, heavily-blurred radial gradients rather than
+   one neat circle, so the edge reads as an organic wave, not a disc. */
+.hero-backdrop {
+    position: absolute;
+    top: -70px;
+    left: -160px;
+    width: 800px;
+    height: 420px;
+    /* Diagonal sweep: faint top-left -> strongest around the brain -> fades out bottom-right. */
+    background:
+        radial-gradient(circle at 6% 12%, rgba(196,181,253,0.16), transparent 50%),
+        radial-gradient(circle at 24% 26%, rgba(196,181,253,0.35), transparent 55%),
+        radial-gradient(circle at 44% 40%, rgba(147,197,253,0.42), transparent 58%),
+        radial-gradient(circle at 60% 52%, rgba(216,180,254,0.4), transparent 55%),
+        radial-gradient(circle at 76% 66%, rgba(125,211,252,0.3), transparent 58%),
+        radial-gradient(circle at 90% 80%, rgba(147,197,253,0.18), transparent 52%);
+    filter: blur(46px);
+    z-index: -1;
+    pointer-events: none;
+    animation: glow-pulse 7s ease-in-out infinite;
+}
+
+/* Smaller corner accents for the connect/upload/results screens - same
+   pastel violet-blue-green family as the intro's backdrop, just quieter.
+   position:fixed so they sit in the viewport corners regardless of which
+   Streamlit widgets happen to render below them. */
+.corner-glow-tl, .corner-glow-br {
+    position: fixed;
+    width: 300px;
+    height: 260px;
+    /* 0, not negative: a negative z-index here sinks below the page's own
+       white background and disappears entirely. Safe at 0 because these
+       sit in the empty margin outside the centered content column. */
+    z-index: 0;
+    pointer-events: none;
+    filter: blur(36px);
+    animation: glow-pulse 6s ease-in-out infinite;
+}
+.corner-glow-tl {
+    top: -70px;
+    left: -70px;
+    background:
+        radial-gradient(circle at 35% 30%, rgba(167,139,250,0.22), transparent 60%),
+        radial-gradient(circle at 65% 60%, rgba(96,165,250,0.16), transparent 60%);
+}
+.corner-glow-br {
+    bottom: -80px;
+    right: -80px;
+    background:
+        radial-gradient(circle at 60% 60%, rgba(96,165,250,0.2), transparent 60%),
+        radial-gradient(circle at 35% 40%, rgba(167,139,250,0.15), transparent 60%);
+    animation-delay: 1.5s;
+}
+
+/* Gentle "breathing" - a bit bigger and a touch more opaque, then back.
+   Used by the intro backdrop and both corner accents. */
+@keyframes glow-pulse {
+    0%, 100% { transform: scale(0.9); opacity: 0.75; }
+    50% { transform: scale(1.25); opacity: 1; }
+}
+
+.brain-icon { z-index: 1; }
+
+.brain-icon {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 138px;
+    height: 106px;
+}
+.brain-icon .edge {
+    stroke: #a9a3d8;
+    stroke-width: 0.6;
+    opacity: 0.6;
+}
+.brain-icon .node {
+    fill: url(#brainGradient);
+}
+
+/* Only the large hub nodes drift a little and settle back - not the
+   whole icon, and not the small nodes/edges, per feedback that a
+   whole-icon tilt was too much motion. */
+.brain-icon .hub-node {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: drift 3.2s ease-in-out infinite;
+    animation-delay: var(--delay, 0s);
+}
+@keyframes drift {
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(var(--dx, 3px), var(--dy, -3px)); }
+}
+
+.hero-title {
+    font-family: Georgia, "Palatino Linotype", "Book Antiqua", serif;
+    font-style: italic;
+    font-weight: 500;
+    color: var(--ink);
+    font-size: 2.3rem;
+    letter-spacing: 0.01em;
+    margin: 0 0 0.5rem 0;
+    overflow: hidden;
+    white-space: nowrap;
+    border-right: 2px solid var(--violet);
+    width: 9ch;
+    margin-left: auto;
+    margin-right: auto;
+    animation: typing 1.4s steps(9, end) forwards, blink-caret 0.8s step-end infinite;
+}
+@keyframes typing {
+    from { width: 0; }
+    to { width: 9ch; }
+}
+@keyframes blink-caret {
+    50% { border-color: transparent; }
+}
+
+.hero-sub {
+    color: var(--muted);
+    font-size: 0.95rem;
+    letter-spacing: 0.03em;
+    margin-top: 0.75rem;
+}
+
+/* ---------- Wizard screens ---------- */
+.screen {
+    animation: fade-up 0.5s ease-out both;
+}
+@keyframes fade-up {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.screen-title {
+    font-family: Georgia, "Palatino Linotype", "Book Antiqua", serif;
+    font-style: italic;
+    font-weight: 500;
+    color: var(--ink);
+    font-size: 1.9rem;
+    margin: 0 0 0.25rem 0;
+}
+.screen-sub {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+}
+
+/* ---------- Section headers ---------- */
+.section-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--violet);
+    margin: 2rem 0 0.25rem 0;
+}
+hr.divider {
+    border: none;
+    border-top: 1px solid var(--hairline);
+    margin: 1.5rem 0;
+}
+
+/* ---------- Inputs ---------- */
+[data-testid="stTextInput"] input {
+    border-radius: 8px !important;
+    border: 1px solid var(--hairline) !important;
+}
+[data-testid="stTextInput"] input:focus {
+    border-color: var(--violet) !important;
+    box-shadow: 0 0 0 1px var(--violet) !important;
+}
+
+/* ---------- Buttons ---------- */
+.stButton > button {
+    border-radius: 8px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 0.6rem 1.4rem;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+/* Primary (Start / Continue / Run): the bold gradient action. */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(90deg, var(--violet), var(--blue));
+    color: white;
+    border: none;
+}
+.stButton > button[kind="primary"]:hover {
+    opacity: 0.88;
+    color: white;
+}
+.stButton > button[kind="primary"]:disabled {
+    background: var(--hairline);
+    color: var(--muted);
+    opacity: 1;
+}
+
+/* Secondary (Back): quiet, doesn't compete with the primary action. */
+.stButton > button[kind="secondary"] {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--hairline);
+}
+.stButton > button[kind="secondary"]:hover {
+    color: var(--violet);
+    border-color: var(--violet);
+}
+
+/* ---------- File uploader ---------- */
+[data-testid="stFileUploaderDropzone"] {
+    border-radius: 10px !important;
+    border: 1px dashed var(--hairline) !important;
+    background: #fafafd !important;
+}
