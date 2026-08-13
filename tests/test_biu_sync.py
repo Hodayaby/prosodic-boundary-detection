@@ -56,7 +56,25 @@ def test_build_slurm_script_has_expected_directives():
     assert "--gres=gpu:1" in script
     assert "--mem=32G" in script
     assert "--job-name=pipeline_abc123" in script
-    assert "run_pipeline_job.py --job-dir pipeline_jobs/abc123" in script
+    assert 'python run_pipeline_job.py --job-dir "$HOME/pipeline_jobs/abc123"' in script
+
+
+def test_build_slurm_script_cds_into_repo_dir_not_submit_dir():
+    """Regression test: the script used to `cd $SLURM_SUBMIT_DIR` and assume
+    run_pipeline_job.py/venv were there - but $SLURM_SUBMIT_DIR is the
+    per-job directory, not the repo. It must cd into the repo explicitly."""
+    script = build_slurm_script("abc123", "pipeline_jobs/abc123", num_chunks=3)
+    assert "$SLURM_SUBMIT_DIR" not in script
+    assert f'cd "$HOME/{biu_sync.REMOTE_REPO_DIR}"' in script
+
+
+def test_build_slurm_script_uses_bare_output_filenames():
+    """--output/--error must be bare filenames (resolved relative to
+    $SLURM_SUBMIT_DIR, which submit_slurm_job() sets to job_dir by cd-ing
+    there before sbatch) - not job_dir-prefixed, which would double up."""
+    script = build_slurm_script("abc123", "pipeline_jobs/abc123", num_chunks=3)
+    assert "--output=job_%j.out" in script
+    assert "--error=job_%j.err" in script
 
 
 def test_build_slurm_script_omits_mail_lines_without_email():
