@@ -91,6 +91,20 @@ if "screen" not in st.session_state:
     st.session_state.screen = "intro"
 
 
+def _parse_biu_address(address: str):
+    """Split a single "username@host" field into its two parts.
+
+    Input: address - raw text from the combined server field, e.g.
+        "agmonlab@slurm-login1.lnx.biu.ac.il".
+    Output: (username, host) tuple, or (None, None) if the text isn't in
+        that shape yet (still typing, missing "@", or a part is empty).
+    """
+    username, sep, host = address.partition("@")
+    if not sep or not username or not host:
+        return None, None
+    return username, host
+
+
 def _go(screen_name: str) -> None:
     st.session_state.screen = screen_name
 
@@ -127,16 +141,13 @@ elif st.session_state.screen == "connect":
         """,
         unsafe_allow_html=True,
     )
-    biu_host = st.text_input(
-        "Server host (SSH address)",
-        key="biu_host",
-        help="The BIU cluster's SSH address, e.g. slurm-login1.lnx.biu.ac.il",
+    biu_address = st.text_input(
+        "Server (username@host)",
+        key="biu_address",
+        help="Your BIU lab username and the cluster address together, "
+        "e.g. agmonlab@slurm-login1.lnx.biu.ac.il",
     )
-    biu_username = st.text_input(
-        "Lab username",
-        key="biu_username",
-        help="Your BIU lab account's login name (e.g. agmonlab) - this is a username, not an email address.",
-    )
+    biu_username, biu_host = _parse_biu_address(biu_address)
     biu_password = st.text_input("Lab password", type="password", key="biu_password")
     notify_email = st.text_input(
         "Notification email (optional)",
@@ -209,13 +220,14 @@ elif st.session_state.screen == "upload":
             result_path = tmp_dir / "result.csv"
             log_dir = tmp_dir / "logs"
 
+            run_username, run_host = _parse_biu_address(st.session_state.biu_address)
             try:
                 with st.spinner("Running pipeline - this can take a while on a busy SLURM queue..."):
                     results_df = run_pipeline(
                         audio_path,
                         transcript_path,
-                        host=st.session_state.biu_host,
-                        username=st.session_state.biu_username,
+                        host=run_host,
+                        username=run_username,
                         password=st.session_state.biu_password,
                         local_result_path=result_path,
                         notify_email=st.session_state.notify_email or None,
