@@ -8,7 +8,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, for the `pipeline` package
 
-from pipeline_runner import PipelineError, run_pipeline
+from pipeline_runner import BIUJobError, PipelineError, run_pipeline, test_connection
 
 st.set_page_config(page_title="Prosodic Boundary Detection", layout="centered")
 
@@ -127,16 +127,52 @@ elif st.session_state.screen == "connect":
         """,
         unsafe_allow_html=True,
     )
-    biu_host = st.text_input("Server host (SSH address)", key="biu_host")
-    biu_email = st.text_input("Lab email", key="biu_email")
+    biu_host = st.text_input(
+        "Server host (SSH address)",
+        key="biu_host",
+        help="The BIU cluster's SSH address, e.g. slurm-login1.lnx.biu.ac.il",
+    )
+    biu_username = st.text_input(
+        "Lab username",
+        key="biu_username",
+        help="Your BIU lab account's login name (e.g. agmonlab) - this is a username, not an email address.",
+    )
     biu_password = st.text_input("Lab password", type="password", key="biu_password")
+    notify_email = st.text_input(
+        "Notification email (optional)",
+        key="notify_email",
+        help="If you enter an email here, the BIU server will send you a message when the job starts, finishes, or fails. Leave blank to skip.",
+    )
 
-    col_back, col_next = st.columns([1, 1])
+    col_back, col_test = st.columns([1, 1])
     with col_back:
         st.button("Back", on_click=_go, args=("intro",))
-    with col_next:
-        ready = bool(biu_host and biu_email and biu_password)
-        st.button("Continue", type="primary", disabled=not ready, use_container_width=True, on_click=_go, args=("upload",))
+    with col_test:
+        ready = bool(biu_host and biu_username and biu_password)  # notify_email is optional
+        test_clicked = st.button("Test connection", type="primary", disabled=not ready, use_container_width=True)
+
+    # Open a real SSH connection now (and close it right away) so a wrong
+    # host/username/password is caught here - before the user spends time
+    # uploading files - instead of only failing much later during Run.
+    if test_clicked:
+        try:
+            with st.spinner("Connecting to the BIU server..."):
+                test_connection(biu_host, biu_username, biu_password)
+        except BIUJobError as exc:
+            st.session_state.connection_ok = False
+            st.error(f"Could not connect: {exc}")
+        else:
+            st.session_state.connection_ok = True
+
+    if st.session_state.get("connection_ok"):
+        st.success("Connected to the server successfully.")
+        st.button(
+            "Continue to upload →",
+            type="primary",
+            use_container_width=True,
+            on_click=_go,
+            args=("upload",),
+        )
 
 # --------------------------------------------------------------- upload ---
 elif st.session_state.screen == "upload":
@@ -179,9 +215,10 @@ elif st.session_state.screen == "upload":
                         audio_path,
                         transcript_path,
                         host=st.session_state.biu_host,
-                        username=st.session_state.biu_email,
+                        username=st.session_state.biu_username,
                         password=st.session_state.biu_password,
                         local_result_path=result_path,
+                        notify_email=st.session_state.notify_email or None,
                         local_log_dir=log_dir,
                     )
             except PipelineError as exc:
