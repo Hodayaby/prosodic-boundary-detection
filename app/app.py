@@ -90,16 +90,14 @@ def _brain_svg() -> str:
 if "screen" not in st.session_state:
     st.session_state.screen = "intro"
 
-# Connection fields are normally set by the widgets on the connect screen,
-# but that screen's code doesn't run once we're past it (different branch
-# below) - if the session ever gets here without connect having rendered
-# first (e.g. a dropped/reconnected browser session on a slow VPN, mid-run),
-# reading these by attribute would raise AttributeError instead of just
-# looking empty. Defaulting them here means a stale/missing connection
-# always fails gracefully with the message below, not a crash.
-st.session_state.setdefault("biu_address", "")
-st.session_state.setdefault("biu_password", "")
-st.session_state.setdefault("notify_email", "")
+# Streamlit drops a widget's session_state entry once that widget stops
+# being drawn on screen - so the connect screen's text_input values (keyed
+# "biu_address" etc.) disappear the moment we navigate to the upload screen,
+# every time, not just on a dropped session. We copy them into these plain
+# (non-widget) keys instead, which persist for the rest of the session.
+st.session_state.setdefault("biu_conn_address", "")
+st.session_state.setdefault("biu_conn_password", "")
+st.session_state.setdefault("biu_conn_notify_email", "")
 
 
 def _parse_biu_address(address: str):
@@ -157,13 +155,16 @@ elif st.session_state.screen == "connect":
         key="biu_address",
         help="Your BIU lab username and the cluster address together, separated by '@'.",
     )
+    st.session_state.biu_conn_address = biu_address
     biu_username, biu_host = _parse_biu_address(biu_address)
     biu_password = st.text_input("Lab password", type="password", key="biu_password")
+    st.session_state.biu_conn_password = biu_password
     notify_email = st.text_input(
         "Notification email (optional)",
         key="notify_email",
         help="If you enter an email here, the BIU server will send you a message when the job starts, finishes, or fails. Leave blank to skip.",
     )
+    st.session_state.biu_conn_notify_email = notify_email
 
     col_back, col_test = st.columns([1, 1])
     with col_back:
@@ -185,7 +186,10 @@ elif st.session_state.screen == "connect":
         else:
             st.session_state.connection_ok = True
 
-    if st.session_state.get("connection_ok"):
+    # Also require the fields to still be filled in - connection_ok alone
+    # would otherwise keep showing "Connected" even after the fields above
+    # come back empty (e.g. after a page reload reset the widgets).
+    if st.session_state.get("connection_ok") and ready:
         st.success("Connected to the server successfully.")
         st.button(
             "Continue to upload →",
@@ -218,14 +222,13 @@ elif st.session_state.screen == "upload":
     run_clicked = st.button("Run", type="primary", disabled=not ready_to_run, use_container_width=True)
 
     if run_clicked:
-        run_username, run_host = _parse_biu_address(st.session_state.get("biu_address", ""))
-        run_password = st.session_state.get("biu_password", "")
+        run_username, run_host = _parse_biu_address(st.session_state.get("biu_conn_address", ""))
+        run_password = st.session_state.get("biu_conn_password", "")
 
         if not (run_host and run_username and run_password):
             st.error(
-                "Your connection details are missing (this can happen if the session "
-                "reconnected, e.g. over a slow VPN). Please go back and connect to the "
-                "server again."
+                "Your connection details are missing. Please go back and connect to "
+                "the server again."
             )
             st.button("Back to connect", on_click=_go, args=("connect",))
         else:
@@ -250,7 +253,7 @@ elif st.session_state.screen == "upload":
                             username=run_username,
                             password=run_password,
                             local_result_path=result_path,
-                            notify_email=st.session_state.get("notify_email") or None,
+                            notify_email=st.session_state.get("biu_conn_notify_email") or None,
                             local_log_dir=log_dir,
                         )
                 except PipelineError as exc:
