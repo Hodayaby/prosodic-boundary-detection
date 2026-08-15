@@ -144,8 +144,7 @@ elif st.session_state.screen == "connect":
     biu_address = st.text_input(
         "Server (username@host)",
         key="biu_address",
-        help="Your BIU lab username and the cluster address together, "
-        "e.g. agmonlab@slurm-login1.lnx.biu.ac.il",
+        help="Your BIU lab username and the cluster address together, separated by '@'.",
     )
     biu_username, biu_host = _parse_biu_address(biu_address)
     biu_password = st.text_input("Lab password", type="password", key="biu_password")
