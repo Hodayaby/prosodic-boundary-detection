@@ -90,6 +90,17 @@ def _brain_svg() -> str:
 if "screen" not in st.session_state:
     st.session_state.screen = "intro"
 
+# Connection fields are normally set by the widgets on the connect screen,
+# but that screen's code doesn't run once we're past it (different branch
+# below) - if the session ever gets here without connect having rendered
+# first (e.g. a dropped/reconnected browser session on a slow VPN, mid-run),
+# reading these by attribute would raise AttributeError instead of just
+# looking empty. Defaulting them here means a stale/missing connection
+# always fails gracefully with the message below, not a crash.
+st.session_state.setdefault("biu_address", "")
+st.session_state.setdefault("biu_password", "")
+st.session_state.setdefault("notify_email", "")
+
 
 def _parse_biu_address(address: str):
     """Split a single "username@host" field into its two parts.
@@ -207,42 +218,52 @@ elif st.session_state.screen == "upload":
     run_clicked = st.button("Run", type="primary", disabled=not ready_to_run, use_container_width=True)
 
     if run_clicked:
-        # Streamlit's uploaded files live in memory; write them to a temp
-        # folder so the pipeline functions (which expect file paths) can read them.
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_dir = Path(tmp_dir)
-            audio_path = tmp_dir / audio_file.name
-            transcript_path = tmp_dir / transcript_file.name
-            audio_path.write_bytes(audio_file.getvalue())
-            transcript_path.write_bytes(transcript_file.getvalue())
+        run_username, run_host = _parse_biu_address(st.session_state.get("biu_address", ""))
+        run_password = st.session_state.get("biu_password", "")
 
-            result_path = tmp_dir / "result.csv"
-            log_dir = tmp_dir / "logs"
+        if not (run_host and run_username and run_password):
+            st.error(
+                "Your connection details are missing (this can happen if the session "
+                "reconnected, e.g. over a slow VPN). Please go back and connect to the "
+                "server again."
+            )
+            st.button("Back to connect", on_click=_go, args=("connect",))
+        else:
+            # Streamlit's uploaded files live in memory; write them to a temp
+            # folder so the pipeline functions (which expect file paths) can read them.
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_dir = Path(tmp_dir)
+                audio_path = tmp_dir / audio_file.name
+                transcript_path = tmp_dir / transcript_file.name
+                audio_path.write_bytes(audio_file.getvalue())
+                transcript_path.write_bytes(transcript_file.getvalue())
 
-            run_username, run_host = _parse_biu_address(st.session_state.biu_address)
-            try:
-                with st.spinner("Running pipeline - this can take a while on a busy SLURM queue..."):
-                    results_df = run_pipeline(
-                        audio_path,
-                        transcript_path,
-                        host=run_host,
-                        username=run_username,
-                        password=st.session_state.biu_password,
-                        local_result_path=result_path,
-                        notify_email=st.session_state.notify_email or None,
-                        local_log_dir=log_dir,
+                result_path = tmp_dir / "result.csv"
+                log_dir = tmp_dir / "logs"
+
+                try:
+                    with st.spinner("Running pipeline - this can take a while on a busy SLURM queue..."):
+                        results_df = run_pipeline(
+                            audio_path,
+                            transcript_path,
+                            host=run_host,
+                            username=run_username,
+                            password=run_password,
+                            local_result_path=result_path,
+                            notify_email=st.session_state.get("notify_email") or None,
+                            local_log_dir=log_dir,
+                        )
+                except PipelineError as exc:
+                    st.error(f"Failed at stage '{exc.stage}': {exc}")
+                    for log_path in exc.log_paths:
+                        with st.expander(f"Log: {log_path.name}"):
+                            st.code(log_path.read_text(errors="replace"))
+                else:
+                    st.success(f"Done - {len(results_df)} words processed.")
+                    st.dataframe(results_df, use_container_width=True)
+                    st.download_button(
+                        "Download results (CSV)",
+                        data=results_df.to_csv(index=False),
+                        file_name="boundary_predictions.csv",
+                        mime="text/csv",
                     )
-            except PipelineError as exc:
-                st.error(f"Failed at stage '{exc.stage}': {exc}")
-                for log_path in exc.log_paths:
-                    with st.expander(f"Log: {log_path.name}"):
-                        st.code(log_path.read_text(errors="replace"))
-            else:
-                st.success(f"Done - {len(results_df)} words processed.")
-                st.dataframe(results_df, use_container_width=True)
-                st.download_button(
-                    "Download results (CSV)",
-                    data=results_df.to_csv(index=False),
-                    file_name="boundary_predictions.csv",
-                    mime="text/csv",
-                )
