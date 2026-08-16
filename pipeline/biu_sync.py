@@ -33,7 +33,8 @@ import soundfile as sf
 
 from pipeline.chunker import AudioChunk
 
-REMOTE_JOBS_DIR = "pipeline_jobs"
+REMOTE_REPO_DIR = "ShiraAndHodaya/prosodic-boundary-detection"  # relative to $HOME on BIU - confirmed via SSH
+REMOTE_JOBS_DIR = f"{REMOTE_REPO_DIR}/pipeline_jobs"
 REMOTE_ENTRY_POINT = "run_pipeline_job.py"  # BIU-side script: classify, merge, threshold, QC; takes --job-dir
 SSH_CONNECT_TIMEOUT_S = 15
 
@@ -98,9 +99,18 @@ def build_slurm_script(job_id: str, job_dir: str, num_chunks: int, email: Option
     """Render the SLURM script for this job, following the same directive
     pattern as the existing evaluate_test_model2.slurm.
 
-    Input: job_id - unique id for this job; job_dir - its remote directory;
-        num_chunks - how many chunks it will process; email - optional address
-        for SLURM's own start/end/fail notifications.
+    job_dir is where sbatch gets submitted from (submit_slurm_job() cd's
+    there first), so --output/--error use bare filenames - SLURM resolves
+    them relative to $SLURM_SUBMIT_DIR automatically. The code itself
+    (run_pipeline_job.py, venv/) lives in REMOTE_REPO_DIR, not job_dir, so
+    the script cd's there explicitly via $HOME rather than assuming
+    $SLURM_SUBMIT_DIR is the repo - job_dir is a subdirectory of the repo,
+    not the repo itself.
+
+    Input: job_id - unique id for this job; job_dir - its remote directory
+        (relative to $HOME, includes REMOTE_REPO_DIR); num_chunks - how many
+        chunks it will process; email - optional address for SLURM's own
+        start/end/fail notifications.
     Output: the full contents of the job.slurm script, as a string.
     """
     mail_lines = ""
@@ -109,8 +119,8 @@ def build_slurm_script(job_id: str, job_dir: str, num_chunks: int, email: Option
 
     return f"""#!/bin/bash
 #SBATCH --job-name=pipeline_{job_id}
-#SBATCH --output={job_dir}/job_%j.out
-#SBATCH --error={job_dir}/job_%j.err
+#SBATCH --output=job_%j.out
+#SBATCH --error=job_%j.err
 #SBATCH --partition=L4-4h
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
@@ -118,14 +128,14 @@ def build_slurm_script(job_id: str, job_dir: str, num_chunks: int, email: Option
 #SBATCH --time={estimate_slurm_time(num_chunks)}
 {mail_lines}set -e
 
-cd $SLURM_SUBMIT_DIR
+cd "$HOME/{REMOTE_REPO_DIR}"
 source venv/bin/activate
 
 echo "Job ID: $SLURM_JOB_ID"
 echo "Running on: $(hostname)"
 echo "Chunks: {num_chunks}"
 
-python {REMOTE_ENTRY_POINT} --job-dir {shlex.quote(job_dir)}
+python {REMOTE_ENTRY_POINT} --job-dir "$HOME/{job_dir}"
 """
 
 
