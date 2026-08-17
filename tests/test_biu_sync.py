@@ -339,6 +339,37 @@ def test_connect_wraps_auth_failure(monkeypatch):
             pass
 
 
+def test_connect_gives_a_human_message_for_a_bad_hostname(monkeypatch):
+    """Regression test: a typo'd/unreachable hostname raises socket.gaierror,
+    whose default message (e.g. "[Errno 11001] getaddrinfo failed" on Windows)
+    is meaningless to someone who isn't reading a Python traceback - confirmed
+    against the real, unmocked connect() against a nonexistent host."""
+    import socket
+
+    fake_client = MagicMock()
+    fake_client.connect.side_effect = socket.gaierror(11001, "getaddrinfo failed")
+    monkeypatch.setattr(biu_sync.paramiko, "SSHClient", lambda: fake_client)
+
+    creds = BIUCredentials(host="typo-ed-hostname.invalid", username="shira", password="x")
+    with pytest.raises(BIUJobError, match="Could not resolve server address"):
+        with connect(creds):
+            pass
+
+
+def test_connect_gives_a_human_message_for_a_connection_timeout(monkeypatch):
+    """A dead/unreachable host (e.g. not on the BIU VPN) times out rather than
+    failing fast - the message should point at the VPN, not print a bare
+    "timed out" with no next step."""
+    fake_client = MagicMock()
+    fake_client.connect.side_effect = TimeoutError("timed out")
+    monkeypatch.setattr(biu_sync.paramiko, "SSHClient", lambda: fake_client)
+
+    creds = BIUCredentials(host="slurm-login1.lnx.biu.ac.il", username="shira", password="x")
+    with pytest.raises(BIUJobError, match="BIU VPN"):
+        with connect(creds):
+            pass
+
+
 # --- run_biu_job orchestration (functions mocked, not paramiko directly) ---
 
 def test_run_biu_job_happy_path(monkeypatch, tmp_path):

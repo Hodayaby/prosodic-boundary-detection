@@ -20,6 +20,7 @@ BIU server has to happen separately, with real credentials.
 import io
 import re
 import shlex
+import socket
 import time
 import uuid
 from contextlib import contextmanager
@@ -204,6 +205,19 @@ def connect(credentials: BIUCredentials):
         )
     except paramiko.AuthenticationException as exc:
         raise BIUJobError("Authentication to BIU failed - check username/password.") from exc
+    except socket.gaierror as exc:
+        # Raised with an empty/cryptic message (e.g. "[Errno 11001] getaddrinfo
+        # failed" on Windows) - not useful on its own to someone who isn't
+        # reading the traceback.
+        raise BIUJobError(
+            f"Could not resolve server address '{credentials.host}' - check that it's "
+            f"typed correctly and that you're connected to the BIU VPN."
+        ) from exc
+    except (socket.timeout, TimeoutError) as exc:
+        raise BIUJobError(
+            f"Timed out connecting to BIU ({credentials.host}) - check that you're "
+            f"connected to the BIU VPN."
+        ) from exc
     except Exception as exc:
         raise BIUJobError(f"Could not connect to BIU ({credentials.host}): {exc}") from exc
 

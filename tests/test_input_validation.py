@@ -38,6 +38,23 @@ def test_validate_audio_rejects_missing_file(tmp_path):
         validate_audio(tmp_path / "nope.wav")
 
 
+def test_validate_audio_rejects_corrupt_file_with_a_non_empty_message(tmp_path):
+    """Regression test: a corrupted/unrecognized .wav makes librosa raise
+    audioread.exceptions.NoBackendError, whose str() is "" - the old code
+    produced a dangling "Could not read audio file 'x.wav': " with no actual
+    information. The message must say something even when the underlying
+    exception has no text of its own."""
+    path = tmp_path / "corrupt.wav"
+    path.write_bytes(b"this is not a real wav file, just garbage bytes")
+
+    with pytest.raises(InputValidationError) as exc_info:
+        validate_audio(path)
+
+    message = str(exc_info.value)
+    assert message.strip() != f"Could not read audio file '{path.name}':"
+    assert len(message) > len(f"Could not read audio file '{path.name}': ")
+
+
 # --- validate_transcript_csv: basic structure ---
 
 def test_validate_transcript_csv_accepts_real_data(real_words_csv):

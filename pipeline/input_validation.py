@@ -70,7 +70,11 @@ def validate_audio(audio_path: Union[str, Path]) -> AudioInfo:
     try:
         speech_array, sample_rate = librosa.load(str(path), sr=None, mono=False)
     except Exception as exc:
-        raise InputValidationError(f"Could not read audio file '{path.name}': {exc}") from exc
+        # Some decode failures (e.g. audioread.exceptions.NoBackendError on a
+        # corrupted/unrecognized file) carry no message text at all - str(exc)
+        # would be "", leaving a dangling "...: " with no actual information.
+        reason = str(exc) or f"{type(exc).__name__} - the file may be corrupted or not a valid audio file"
+        raise InputValidationError(f"Could not read audio file '{path.name}': {reason}") from exc
 
     num_channels = 1 if speech_array.ndim == 1 else speech_array.shape[0]
     num_samples = speech_array.shape[-1]
