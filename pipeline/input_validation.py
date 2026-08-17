@@ -16,7 +16,7 @@ been preprocessed and chunked.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 import librosa
 import pandas as pd
@@ -104,36 +104,43 @@ def _resolve_transcript_columns(df: pd.DataFrame, filename: str) -> Dict[str, st
     falls back to substring matching for files that use different naming
     (e.g. 'Start_Time', 'End'), and refuses to guess if that's ambiguous.
 
+    Checks all three canonical columns before raising, so a CSV that's
+    missing/ambiguous on more than one of them gets reported together in one
+    error - not one at a time across repeated fix-reupload-fail cycles.
+
     Input: df - the loaded transcript CSV; filename - used only in error messages.
     Output: dict mapping canonical name ("word"/"start_s"/"end_s") to the actual column name in df.
     """
     resolved: Dict[str, str] = {}
     claimed: Dict[str, str] = {}  # actual column -> canonical name that claimed it
+    problems: List[str] = []
 
     for canonical, keyword in TRANSCRIPT_COLUMN_KEYWORDS.items():
         exact = [c for c in df.columns if c.lower() == canonical.lower()]
         candidates = exact or [c for c in df.columns if keyword in c.lower()]
 
         if not candidates:
-            raise InputValidationError(
-                f"Transcript CSV '{filename}' has no column for '{canonical}' "
-                f"(expected a column named '{canonical}', or containing '{keyword}'). "
-                f"Found columns: {list(df.columns)}"
+            problems.append(
+                f"no column for '{canonical}' (expected a column named '{canonical}', or containing '{keyword}')"
             )
+            continue
         if len(candidates) > 1:
-            raise InputValidationError(
-                f"Transcript CSV '{filename}' has more than one column that could be "
-                f"'{canonical}': {candidates}. Rename so only one contains '{keyword}'."
-            )
+            problems.append(f"more than one column could be '{canonical}': {candidates} - rename so only one contains '{keyword}'")
+            continue
 
         col = candidates[0]
         if col in claimed:
-            raise InputValidationError(
-                f"Transcript CSV '{filename}': column '{col}' matches both "
-                f"'{claimed[col]}' and '{canonical}'. Rename columns so each is unambiguous."
-            )
+            problems.append(f"column '{col}' matches both '{claimed[col]}' and '{canonical}' - rename columns so each is unambiguous")
+            continue
         claimed[col] = canonical
         resolved[canonical] = col
+
+    if problems:
+        required = ", ".join(TRANSCRIPT_COLUMN_KEYWORDS.keys())
+        raise InputValidationError(
+            f"Transcript CSV '{filename}' needs columns for: {required}. "
+            f"Found columns: {list(df.columns)}. Problems: " + "; ".join(problems)
+        )
 
     return resolved
 

@@ -123,6 +123,23 @@ def test_rejects_csv_with_no_recognizable_columns(tmp_path):
         validate_transcript_csv(path)
 
 
+def test_reports_all_missing_columns_together_not_one_at_a_time(tmp_path):
+    """Regression test: a CSV missing every required column used to only
+    report 'word' (the first one checked) - a user fixing that would
+    re-upload and immediately hit a second, then third, separate failure.
+    All three must be reported in the same error."""
+    path = tmp_path / "all_wrong.csv"
+    pd.DataFrame({"text": ["hi"], "begin": [0.0], "final": [0.4]}).to_csv(path, index=False)
+
+    with pytest.raises(InputValidationError) as exc_info:
+        validate_transcript_csv(path)
+
+    message = str(exc_info.value)
+    assert "'word'" in message
+    assert "'start_s'" in message
+    assert "'end_s'" in message
+
+
 # --- validate_input ---
 
 def test_validate_input_requires_transcript_csv_path():
