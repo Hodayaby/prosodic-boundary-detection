@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
+import paramiko
 import pytest
 import soundfile as sf
 
@@ -14,6 +15,7 @@ from pipeline.biu_sync import (
     _chunk_to_wav_bytes,
     _parse_sacct_state,
     _parse_sbatch_job_id,
+    _run_command,
     build_slurm_script,
     cleanup_job,
     connect,
@@ -228,6 +230,62 @@ def test_cleanup_job_runs_rm_rf():
     assert "pipeline_jobs/abc" in ssh.exec_command.call_args[0][0]
 
 
+# --- connection dropping mid-operation (not just a clean failure) ---
+# These simulate the VPN/network dying partway through a step, not the
+# remote command failing cleanly - paramiko/OSError raised directly from
+# exec_command or an sftp call, rather than a non-zero exit status.
+
+@pytest.mark.parametrize("dropped_exc", [OSError("Socket is closed"), paramiko.SSHException("EOF during negotiation")])
+def test_run_command_wraps_connection_drop(dropped_exc):
+    ssh = MagicMock()
+    ssh.exec_command.side_effect = dropped_exc
+
+    with pytest.raises(BIUJobError, match="Lost connection"):
+        _run_command(ssh, "echo hi")
+
+
+def test_upload_job_wraps_connection_drop_mid_transfer():
+    ssh = MagicMock()
+    ssh.exec_command.return_value = _mock_exec_result(0)  # mkdir succeeds
+    sftp = MagicMock()
+    ssh.open_sftp.return_value = sftp
+    # First file write succeeds, the next one drops mid-transfer - doesn't
+    # matter which exact file, just that a write failing partway through
+    # the loop surfaces as a clear error instead of a raw traceback.
+    sftp.open.return_value.__enter__.return_value.write.side_effect = [None, OSError("Connection reset by peer")]
+
+    chunks = [_make_chunk("chunk_0"), _make_chunk("chunk_1")]
+    with pytest.raises(BIUJobError, match="Connection to BIU was lost while uploading"):
+        upload_job(ssh, chunks, sample_rate=16000, email=None)
+
+    sftp.close.assert_called_once()  # still cleaned up despite the failure
+
+
+def test_download_result_wraps_connection_drop(tmp_path):
+    ssh = MagicMock()
+    sftp = MagicMock()
+    sftp.get.side_effect = paramiko.SSHException("Server connection dropped")
+    ssh.open_sftp.return_value = sftp
+
+    with pytest.raises(BIUJobError, match="Connection to BIU was lost while downloading"):
+        download_result(ssh, "pipeline_jobs/abc", tmp_path / "result.csv")
+
+    sftp.close.assert_called_once()
+
+
+def test_download_result_still_distinguishes_missing_file_from_dropped_connection(tmp_path):
+    """A missing result.csv (job failed before writing it) is a different,
+    more specific message than a dropped connection - must not collapse
+    into the same generic error."""
+    ssh = MagicMock()
+    sftp = MagicMock()
+    sftp.get.side_effect = FileNotFoundError()
+    ssh.open_sftp.return_value = sftp
+
+    with pytest.raises(BIUJobError, match="Result file not found"):
+        download_result(ssh, "pipeline_jobs/abc", tmp_path / "result.csv")
+
+
 def test_poll_job_status_with_retry_succeeds_first_try(monkeypatch):
     calls = []
     monkeypatch.setattr(biu_sync, "poll_job_status", lambda ssh, job_id: calls.append(1) or JobStatus(job_id, "RUNNING"))
@@ -366,6 +424,53 @@ def test_run_biu_job_skips_log_download_when_no_local_log_dir_given(monkeypatch,
 
     assert download_logs_calls == []
     assert exc_info.value.log_paths == []
+
+
+def test_run_biu_job_cleanup_drop_does_not_mask_the_real_failure(monkeypatch, tmp_path):
+    """If the connection dies right after a SLURM failure (so cleanup_job
+    also fails), the user should still see the SLURM failure message -
+    not a less useful "lost connection during cleanup" one instead."""
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "upload_job", lambda ssh, chunks, sample_rate, email: "pipeline_jobs/job1")
+    monkeypatch.setattr(biu_sync, "submit_slurm_job", lambda ssh, job_dir: "42")
+    monkeypatch.setattr(biu_sync, "poll_job_status_with_retry", lambda ssh, job_id: JobStatus(job_id, "FAILED"))
+    monkeypatch.setattr(biu_sync, "download_logs", lambda ssh, job_dir, local_dir: [])
+
+    def _cleanup_also_drops(ssh, job_dir):
+        raise BIUJobError("Lost connection to BIU while running a remote command: Socket is closed")
+
+    monkeypatch.setattr(biu_sync, "cleanup_job", _cleanup_also_drops)
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    with pytest.raises(BIUJobError, match="ended with state FAILED"):
+        biu_sync.run_biu_job(creds, [_make_chunk()], tmp_path / "result.csv", poll_interval_s=0)
+
+
+def test_run_biu_job_cleanup_drop_does_not_break_the_happy_path(monkeypatch, tmp_path):
+    """Same idea on success: if cleanup fails after a completed job (e.g.
+    the connection drops right after the result was already downloaded),
+    the job should still be reported as a success - the result is already
+    safely on disk."""
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "upload_job", lambda ssh, chunks, sample_rate, email: "pipeline_jobs/job1")
+    monkeypatch.setattr(biu_sync, "submit_slurm_job", lambda ssh, job_dir: "42")
+    monkeypatch.setattr(biu_sync, "poll_job_status_with_retry", lambda ssh, job_id: JobStatus(job_id, "COMPLETED"))
+
+    result_path = tmp_path / "result.csv"
+    pd.DataFrame({"word": ["hi"]}).to_csv(result_path, index=False)
+    monkeypatch.setattr(biu_sync, "download_result", lambda ssh, job_dir, local_path: None)
+
+    def _cleanup_also_drops(ssh, job_dir):
+        raise BIUJobError("Lost connection to BIU while running a remote command: Socket is closed")
+
+    monkeypatch.setattr(biu_sync, "cleanup_job", _cleanup_also_drops)
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    df = biu_sync.run_biu_job(creds, [_make_chunk()], result_path, poll_interval_s=0)
+
+    assert list(df["word"]) == ["hi"]  # no exception - the job still succeeded
 
 
 class _FakeConnectCtx:

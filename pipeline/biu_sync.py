@@ -216,15 +216,21 @@ def connect(credentials: BIUCredentials):
 def _run_command(ssh: paramiko.SSHClient, command: str) -> str:
     """Run one shell command over the SSH connection and return its output.
 
-    Raises BIUJobError if the command exits with a non-zero status.
+    Raises BIUJobError if the command exits with a non-zero status, or if
+    the connection itself drops mid-command (every caller - upload_job's
+    mkdir, submit_slurm_job, cleanup_job - goes through here, so this is
+    the one place that needs to catch it).
 
     Input: ssh - an open SSH connection; command - the shell command to run.
     Output: the command's stdout text.
     """
-    stdin, stdout, stderr = ssh.exec_command(command)
-    exit_status = stdout.channel.recv_exit_status()
-    out = stdout.read().decode()
-    err = stderr.read().decode()
+    try:
+        stdin, stdout, stderr = ssh.exec_command(command)
+        exit_status = stdout.channel.recv_exit_status()
+        out = stdout.read().decode()
+        err = stderr.read().decode()
+    except (OSError, paramiko.SSHException) as exc:
+        raise BIUJobError(f"Lost connection to BIU while running a remote command: {exc}") from exc
 
     if exit_status != 0:
         raise BIUJobError(f"Remote command failed (exit {exit_status}): {command!r}: {err.strip() or out.strip()}")
@@ -258,6 +264,8 @@ def upload_job(ssh: paramiko.SSHClient, chunks: List[AudioChunk], sample_rate: i
         script = build_slurm_script(job_id, job_dir, len(chunks), email=email)
         with sftp.open(f"{job_dir}/job.slurm", "w") as f:
             f.write(script)
+    except (OSError, paramiko.SSHException) as exc:
+        raise BIUJobError(f"Connection to BIU was lost while uploading files: {exc}") from exc
     finally:
         sftp.close()
 
@@ -334,6 +342,8 @@ def download_result(ssh: paramiko.SSHClient, job_dir: str, local_path: Path) -> 
             raise BIUJobError(
                 f"Result file not found at {remote_path} - the job may have failed before producing output."
             ) from exc
+        except (OSError, paramiko.SSHException) as exc:
+            raise BIUJobError(f"Connection to BIU was lost while downloading the result: {exc}") from exc
     finally:
         sftp.close()
 
@@ -434,6 +444,13 @@ def run_biu_job(
 
             download_result(ssh, job_dir, local_result_path)
         finally:
-            cleanup_job(ssh, job_dir)
+            # Best-effort: if the connection is already gone (e.g. it dropped
+            # right after the failure above), cleanup failing here must not
+            # replace/hide a more useful error already in flight from the
+            # try block (SLURM failure, timeout, download failure, etc.).
+            try:
+                cleanup_job(ssh, job_dir)
+            except BIUJobError:
+                pass
 
     return pd.read_csv(local_result_path)
