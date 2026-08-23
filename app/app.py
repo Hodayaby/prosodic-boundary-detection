@@ -322,8 +322,20 @@ elif st.session_state.screen == "upload":
     # upload. run_in_progress is set below before the slow part starts, so
     # the second click's run sees it immediately and refuses instead of
     # submitting a duplicate job.
+    #
+    # run_in_progress only lives in this browser session's memory, though -
+    # it says nothing about whether a job is really running, and a page
+    # reload wipes it clean regardless. find_pending_job checks the actual
+    # persistent record instead (pipeline/biu_sync.py's .pending_jobs.json,
+    # written the moment a job is submitted and only cleared once its
+    # cleanup succeeds) - that one survives a reload, and is what "unlock"
+    # below must not bypass.
+    run_username, run_host = _parse_biu_address(st.session_state.get("biu_conn_address", ""))
+    pending_job = find_pending_job(run_host, run_username) if run_host and run_username else None
+
     already_running = st.session_state.get("run_in_progress", False)
-    ready_to_run = bool(audio_file and transcript_file) and not already_running
+    blocked_by_pending = bool(pending_job) and not already_running
+    ready_to_run = bool(audio_file and transcript_file) and not already_running and not blocked_by_pending
     run_clicked = st.button("Run", type="primary", disabled=not ready_to_run, use_container_width=True)
 
     if already_running:
@@ -332,15 +344,24 @@ elif st.session_state.screen == "upload":
         # finishes. If that run was interrupted before reaching its own
         # cleanup (a dropped connection, a page reload mid-run, etc.), it
         # never clears - leaving Run permanently disabled with nothing
-        # actually running. This is the way out of that stuck state.
+        # actually running. This unlocks the *session's* flag only - if a
+        # job is still genuinely outstanding, blocked_by_pending (checked
+        # again on the very next rerun, since it re-reads the persistent
+        # record) keeps Run disabled regardless.
         if st.button("Nothing is actually running - unlock Run", key="force_unlock_run"):
             st.session_state.run_in_progress = False
             st.rerun()
+    elif blocked_by_pending:
+        st.warning(
+            f"There's a job from an earlier session (started {pending_job['created_at']}) "
+            f"that hasn't been resolved yet. Go back to Connect to check its status or "
+            f"discard it before starting a new run."
+        )
+        st.button("Back to connect", on_click=_go, args=("connect",), key="back_to_connect_from_upload")
 
-    if run_clicked and not already_running:
+    if run_clicked and not already_running and not blocked_by_pending:
         st.session_state.run_in_progress = True
         try:
-            run_username, run_host = _parse_biu_address(st.session_state.get("biu_conn_address", ""))
             run_password = st.session_state.get("biu_conn_password", "")
 
             if not (run_host and run_username and run_password):
