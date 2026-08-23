@@ -217,56 +217,77 @@ elif st.session_state.screen == "upload":
 
     st.button("Back", on_click=_go, args=("connect",))
 
-    # Run stays disabled until every required field is filled in.
-    ready_to_run = bool(audio_file and transcript_file)
+    # Run stays disabled until every required field is filled in, and again
+    # once a run is already in flight - a fast double-click can otherwise
+    # land as two separate script runs (Streamlit interrupts the first run's
+    # UI updates on a new interaction, but the already-started Python call
+    # keeps executing), each submitting its own SLURM job for the same
+    # upload. run_in_progress is set below before the slow part starts, so
+    # the second click's run sees it immediately and refuses instead of
+    # submitting a duplicate job.
+    already_running = st.session_state.get("run_in_progress", False)
+    ready_to_run = bool(audio_file and transcript_file) and not already_running
     run_clicked = st.button("Run", type="primary", disabled=not ready_to_run, use_container_width=True)
 
-    if run_clicked:
-        run_username, run_host = _parse_biu_address(st.session_state.get("biu_conn_address", ""))
-        run_password = st.session_state.get("biu_conn_password", "")
+    if already_running:
+        st.info("A run is already in progress - please wait for it to finish.")
 
-        if not (run_host and run_username and run_password):
-            st.error(
-                "Your connection details are missing. Please go back and connect to "
-                "the server again."
-            )
-            st.button("Back to connect", on_click=_go, args=("connect",))
-        else:
-            # Streamlit's uploaded files live in memory; write them to a temp
-            # folder so the pipeline functions (which expect file paths) can read them.
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                tmp_dir = Path(tmp_dir)
-                audio_path = tmp_dir / audio_file.name
-                transcript_path = tmp_dir / transcript_file.name
-                audio_path.write_bytes(audio_file.getvalue())
-                transcript_path.write_bytes(transcript_file.getvalue())
+    if run_clicked and not already_running:
+        st.session_state.run_in_progress = True
+        try:
+            run_username, run_host = _parse_biu_address(st.session_state.get("biu_conn_address", ""))
+            run_password = st.session_state.get("biu_conn_password", "")
 
-                result_path = tmp_dir / "result.csv"
-                log_dir = tmp_dir / "logs"
+            if not (run_host and run_username and run_password):
+                st.error(
+                    "Your connection details are missing. Please go back and connect to "
+                    "the server again."
+                )
+                st.button("Back to connect", on_click=_go, args=("connect",))
+            else:
+                # Streamlit's uploaded files live in memory; write them to a temp
+                # folder so the pipeline functions (which expect file paths) can read them.
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    tmp_dir = Path(tmp_dir)
+                    audio_path = tmp_dir / audio_file.name
+                    transcript_path = tmp_dir / transcript_file.name
+                    audio_path.write_bytes(audio_file.getvalue())
+                    transcript_path.write_bytes(transcript_file.getvalue())
 
-                try:
-                    with st.spinner("Running pipeline - this can take a while on a busy SLURM queue..."):
-                        results_df = run_pipeline(
-                            audio_path,
-                            transcript_path,
-                            host=run_host,
-                            username=run_username,
-                            password=run_password,
-                            local_result_path=result_path,
-                            notify_email=st.session_state.get("biu_conn_notify_email") or None,
-                            local_log_dir=log_dir,
+                    result_path = tmp_dir / "result.csv"
+                    log_dir = tmp_dir / "logs"
+
+                    try:
+                        with st.spinner("Running pipeline - this can take a while on a busy SLURM queue..."):
+                            results_df = run_pipeline(
+                                audio_path,
+                                transcript_path,
+                                host=run_host,
+                                username=run_username,
+                                password=run_password,
+                                local_result_path=result_path,
+                                notify_email=st.session_state.get("biu_conn_notify_email") or None,
+                                local_log_dir=log_dir,
+                            )
+                    except PipelineError as exc:
+                        st.error(f"Failed at stage '{exc.stage}': {exc}")
+                        for log_path in exc.log_paths:
+                            with st.expander(f"Log: {log_path.name}"):
+                                st.code(log_path.read_text(errors="replace"))
+                    else:
+                        # threshold (same constant value on every row) and
+                        # chunk_id (an internal detail of how the audio was
+                        # split for processing) are useful for QC on the BIU
+                        # side, not for the table a person looks at - dropped
+                        # only here, right before display/download.
+                        display_df = results_df.drop(columns=["threshold", "chunk_id"], errors="ignore")
+                        st.success(f"Done - {len(display_df)} words processed.")
+                        st.dataframe(display_df, use_container_width=True)
+                        st.download_button(
+                            "Download results (CSV)",
+                            data=display_df.to_csv(index=False),
+                            file_name="boundary_predictions.csv",
+                            mime="text/csv",
                         )
-                except PipelineError as exc:
-                    st.error(f"Failed at stage '{exc.stage}': {exc}")
-                    for log_path in exc.log_paths:
-                        with st.expander(f"Log: {log_path.name}"):
-                            st.code(log_path.read_text(errors="replace"))
-                else:
-                    st.success(f"Done - {len(results_df)} words processed.")
-                    st.dataframe(results_df, use_container_width=True)
-                    st.download_button(
-                        "Download results (CSV)",
-                        data=results_df.to_csv(index=False),
-                        file_name="boundary_predictions.csv",
-                        mime="text/csv",
-                    )
+        finally:
+            st.session_state.run_in_progress = False
