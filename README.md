@@ -55,8 +55,20 @@ python -m streamlit run app/app.py
 http://localhost:8501
 ```
 
-**4. In the app:** fill in the BIU server host, your lab email, and your
-lab password, upload an audio file and a transcript CSV, then click Run.
+**4. Click "Start"** on the welcome screen.
+
+**5. Connect:** enter your BIU login as a single `username@host` field
+(e.g. `agmonlab@slurm-login1.lnx.biu.ac.il`), your lab password, and
+optionally a notification email (BIU will email you when the job starts,
+finishes, or fails - leave this blank to skip it). Click **"Test
+connection"** - this opens and immediately closes a real SSH connection,
+so a wrong host, username, or password is caught here rather than after
+you've uploaded files. Once it succeeds, click "Continue to upload".
+
+**6. Upload and run:** upload an audio file and a transcript CSV, then
+click **Run**. This submits a job to BIU's SLURM cluster and can take a
+while on a busy queue. When it finishes, the results table appears with
+a "Download results (CSV)" button.
 
 **To stop the app:** go back to the terminal and press `Ctrl+C`, or close
 the terminal window. The page stops working once the terminal that's
@@ -84,10 +96,15 @@ pipeline/               Core, reusable pipeline logic (no UI code)
   orchestrator.py           Runs every stage above in order for one job
 
 app/                     The Streamlit web UI
-  app.py                   The page itself: upload form, Run button, results
+  app.py                   The page itself: connect/upload/results screens, Run button
   pipeline_runner.py        Thin adapter between the UI's raw inputs and pipeline.orchestrator
+  style.css                 Visual styling only - no logic
 
-tests/                   Automated tests, one file per pipeline/ module
+run_pipeline_job.py     Entry point that runs on the BIU side, inside the SLURM job:
+                          classifies each chunk, merges the predictions, applies the
+                          threshold, and runs quality control before returning results
+
+tests/                   Automated tests, one file per pipeline/ and app/ module
 ```
 
 ## Transcript CSV format
