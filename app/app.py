@@ -2,6 +2,7 @@
 
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -350,6 +351,15 @@ elif st.session_state.screen == "upload":
         # record) keeps Run disabled regardless.
         if st.button("Nothing is actually running - unlock Run", key="force_unlock_run"):
             st.session_state.run_in_progress = False
+            st.rerun()
+        else:
+            # A double-click can leave this exact page "frozen" showing
+            # this message even after the actual run finishes in the
+            # background and resets the flag - Streamlit only redraws a
+            # session on a new interaction, not just because session_state
+            # changed elsewhere. Re-checking every couple seconds means the
+            # page catches up on its own instead of needing a manual click.
+            time.sleep(2)
             st.rerun()
     elif blocked_by_pending:
         st.warning(
