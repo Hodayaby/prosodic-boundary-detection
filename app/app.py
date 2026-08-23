@@ -352,17 +352,21 @@ elif st.session_state.screen == "upload":
         unsafe_allow_html=True,
     )
 
-    # A finished run's result, if one is waiting to be shown. Stashed as a
-    # path in session_state (see the run_clicked block below) rather than
-    # displayed directly by the script execution that computed it - a
-    # double-click's second interaction can make Streamlit treat that
-    # execution as superseded once it finally finishes, silently dropping
-    # its st.success/st.dataframe calls instead of ever showing them. Any
-    # rerun (including the auto-refresh below) re-checks this instead, so
-    # the result surfaces regardless of which execution's own display got
-    # dropped.
-    pending_result_path = st.session_state.get("last_result_csv_path")
-    if pending_result_path and Path(pending_result_path).exists():
+    # A finished run's result, if one is waiting to be shown. Checked by
+    # looking at the results folder itself, not session_state - a
+    # double-click's second interaction can make Streamlit treat the first
+    # click's execution as superseded once it finally finishes, silently
+    # dropping its st.success/st.dataframe calls instead of ever showing
+    # them, and a page reload (or the browser session dying for any other
+    # reason) wipes session_state clean regardless of whether the run
+    # actually finished. The file surviving on disk is what's real; at most
+    # one is ever meant to exist at a time (a new run sweeps old ones - see
+    # below), so its mere presence is enough to know a result is waiting,
+    # from *any* session, not just the one that happened to compute it.
+    results_dir = Path(tempfile.gettempdir()) / "prosodic_pipeline_results"
+    existing_results = sorted(results_dir.glob("result_*.csv")) if results_dir.exists() else []
+    if existing_results:
+        pending_result_path = existing_results[0]
         display_df = _trim_for_display(pd.read_csv(pending_result_path))
         st.success(f"Done - {len(display_df)} words processed.")
         st.dataframe(display_df, use_container_width=True)
@@ -374,11 +378,7 @@ elif st.session_state.screen == "upload":
             key="download_last_result",
         )
         if st.button("Start a new run", type="primary", use_container_width=True, key="dismiss_last_result"):
-            try:
-                Path(pending_result_path).unlink()
-            except OSError:
-                pass
-            del st.session_state["last_result_csv_path"]
+            pending_result_path.unlink(missing_ok=True)
             st.rerun()
         st.stop()
 
@@ -518,7 +518,9 @@ elif st.session_state.screen == "upload":
                             with st.expander(f"Log: {log_path.name}"):
                                 st.code(log_path.read_text(errors="replace"))
                     else:
-                        st.session_state.last_result_csv_path = str(result_path)
+                        # Nothing to stash - result_path on disk is itself
+                        # the signal the Upload screen's top-of-page check
+                        # looks for, from any session.
                         st.rerun()
         finally:
             st.session_state.run_in_progress = False
