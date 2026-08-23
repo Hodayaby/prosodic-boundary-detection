@@ -328,6 +328,14 @@ elif st.session_state.screen == "upload":
 
     if already_running:
         st.info("A run is already in progress - please wait for it to finish.")
+        # The flag above only gets cleared by the run that set it, once it
+        # finishes. If that run was interrupted before reaching its own
+        # cleanup (a dropped connection, a page reload mid-run, etc.), it
+        # never clears - leaving Run permanently disabled with nothing
+        # actually running. This is the way out of that stuck state.
+        if st.button("Nothing is actually running - unlock Run", key="force_unlock_run"):
+            st.session_state.run_in_progress = False
+            st.rerun()
 
     if run_clicked and not already_running:
         st.session_state.run_in_progress = True
