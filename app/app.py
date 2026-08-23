@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, for the `pipeline` package
 
@@ -142,6 +143,44 @@ def _trim_for_display(results_df):
     Output: a copy with 'threshold' and 'chunk_id' removed, if present.
     """
     return results_df.drop(columns=["threshold", "chunk_id"], errors="ignore")
+
+
+def _warn_before_unload(active: bool) -> None:
+    """Ask the browser to confirm before leaving the page (refresh, close
+    tab, back button) while a run this session started is in flight -
+    refreshing then starts a brand new session that never sees that run's
+    own completion, even though the job itself is tracked and recoverable
+    via Connect afterward.
+
+    Browsers control the dialog's own wording (a fixed, generic "leave
+    site?" message) - custom text isn't possible; only whether the prompt
+    appears at all is. Installed once via a tiny invisible component and
+    driven by a flag on the top-level window, so this can be armed and
+    disarmed on every rerun without piling up duplicate listeners.
+
+    Input: active - whether a run is currently in flight for this session.
+    Output: none (renders an invisible 0-height component).
+    """
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            var top = window.parent;
+            top.__pipelineRunInProgress = {"true" if active else "false"};
+            if (!top.__pipelineUnloadGuardInstalled) {{
+                top.__pipelineUnloadGuardInstalled = true;
+                top.addEventListener("beforeunload", function(e) {{
+                    if (top.__pipelineRunInProgress) {{
+                        e.preventDefault();
+                        e.returnValue = "";
+                    }}
+                }});
+            }}
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 # ---------------------------------------------------------------- intro ---
@@ -372,6 +411,12 @@ elif st.session_state.screen == "upload":
     ready_to_run = bool(audio_file and transcript_file) and not already_running and not blocked_by_pending
     run_clicked = st.button("Run", type="primary", disabled=not ready_to_run, use_container_width=True)
 
+    # Covers renders where a run from an earlier click is already in flight
+    # (including the auto-refresh loop below); armed again, explicitly,
+    # right before a *new* run's blocking call further down - that one
+    # can't wait for a later rerun to arm it.
+    _warn_before_unload(already_running)
+
     if already_running and pending_job:
         # The persistent record (written seconds into a real run, well
         # before it finishes - see record_pending_job in biu_sync.py)
@@ -417,6 +462,7 @@ elif st.session_state.screen == "upload":
 
     if run_clicked and not already_running and not blocked_by_pending:
         st.session_state.run_in_progress = True
+        _warn_before_unload(True)  # arm now - the call above already ran before this click
         try:
             run_password = st.session_state.get("biu_conn_password", "")
 
@@ -476,3 +522,4 @@ elif st.session_state.screen == "upload":
                         st.rerun()
         finally:
             st.session_state.run_in_progress = False
+            _warn_before_unload(False)
