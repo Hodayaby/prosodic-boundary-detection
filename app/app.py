@@ -393,18 +393,20 @@ elif st.session_state.screen == "upload":
         # permanently disabled with nothing actually running. Offered here,
         # not above, because the missing record is exactly what makes that
         # plausible instead of contradicting it.
-        if st.button("Nothing is actually running - unlock Run", key="force_unlock_run"):
+        if st.button("If you're sure nothing is running, unlock Run", key="force_unlock_run"):
             st.session_state.run_in_progress = False
             st.rerun()
-        else:
-            # A double-click can leave this exact page "frozen" showing
-            # this message even after the actual run finishes in the
-            # background and resets the flag - Streamlit only redraws a
-            # session on a new interaction, not just because session_state
-            # changed elsewhere. Re-checking every couple seconds means the
-            # page catches up on its own instead of needing a manual click.
-            time.sleep(2)
-            st.rerun()
+        st.caption("Wait a few minutes first to make sure the run has actually stopped.")
+        # st.rerun() above stops the script immediately when the button was
+        # clicked, so reaching here means it wasn't - safe to auto-refresh.
+        # A double-click can leave this exact page "frozen" showing this
+        # message even after the actual run finishes in the background and
+        # resets the flag - Streamlit only redraws a session on a new
+        # interaction, not just because session_state changed elsewhere.
+        # Re-checking every couple seconds means the page catches up on its
+        # own instead of needing a manual click.
+        time.sleep(2)
+        st.rerun()
     elif blocked_by_pending:
         st.warning(
             f"There's a job from an earlier session (started {pending_job['created_at']}) "
@@ -429,8 +431,16 @@ elif st.session_state.screen == "upload":
                 # block - not the auto-deleted tempdir the inputs use - so it
                 # survives even if this exact script execution never gets to
                 # display it itself (see the pending_result_path check above).
+                # This folder only ever needs to hold results still waiting
+                # to be viewed; "Start a new run" already deletes its own
+                # file, so anything else in here is left over from a session
+                # that was abandoned before that (tab closed, browser
+                # crashed) - stays purely local either way, never touches
+                # the BIU server, but still worth not letting it pile up.
                 results_dir = Path(tempfile.gettempdir()) / "prosodic_pipeline_results"
                 results_dir.mkdir(parents=True, exist_ok=True)
+                for leftover in results_dir.glob("result_*.csv"):
+                    leftover.unlink(missing_ok=True)
                 result_path = results_dir / f"result_{uuid.uuid4().hex[:8]}.csv"
 
                 # Streamlit's uploaded files live in memory; write them to a temp
