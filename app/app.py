@@ -339,16 +339,27 @@ elif st.session_state.screen == "upload":
     ready_to_run = bool(audio_file and transcript_file) and not already_running and not blocked_by_pending
     run_clicked = st.button("Run", type="primary", disabled=not ready_to_run, use_container_width=True)
 
-    if already_running:
+    if already_running and pending_job:
+        # The persistent record (written seconds into a real run, well
+        # before it finishes - see record_pending_job in biu_sync.py)
+        # corroborates that this really is an active job, not just a stale
+        # flag. Don't offer an "unlock" escape hatch when there's positive
+        # evidence it would be wrong to use it.
+        st.info(
+            f"A run is in progress (job started {pending_job['created_at']}) - "
+            f"please wait for it to finish."
+        )
+        time.sleep(2)
+        st.rerun()
+    elif already_running:
         st.info("A run is already in progress - please wait for it to finish.")
-        # The flag above only gets cleared by the run that set it, once it
-        # finishes. If that run was interrupted before reaching its own
-        # cleanup (a dropped connection, a page reload mid-run, etc.), it
-        # never clears - leaving Run permanently disabled with nothing
-        # actually running. This unlocks the *session's* flag only - if a
-        # job is still genuinely outstanding, blocked_by_pending (checked
-        # again on the very next rerun, since it re-reads the persistent
-        # record) keeps Run disabled regardless.
+        # No corroborating pending-job record - this flag only gets cleared
+        # by the run that set it, once it finishes, and if that run was
+        # interrupted before reaching its own cleanup (a dropped connection,
+        # a page reload mid-run, etc.) it never clears, leaving Run
+        # permanently disabled with nothing actually running. Offered here,
+        # not above, because the missing record is exactly what makes that
+        # plausible instead of contradicting it.
         if st.button("Nothing is actually running - unlock Run", key="force_unlock_run"):
             st.session_state.run_in_progress = False
             st.rerun()
