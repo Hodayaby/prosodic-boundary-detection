@@ -3,8 +3,10 @@
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, for the `pipeline` package
@@ -310,6 +312,37 @@ elif st.session_state.screen == "upload":
         """,
         unsafe_allow_html=True,
     )
+
+    # A finished run's result, if one is waiting to be shown. Stashed as a
+    # path in session_state (see the run_clicked block below) rather than
+    # displayed directly by the script execution that computed it - a
+    # double-click's second interaction can make Streamlit treat that
+    # execution as superseded once it finally finishes, silently dropping
+    # its st.success/st.dataframe calls instead of ever showing them. Any
+    # rerun (including the auto-refresh below) re-checks this instead, so
+    # the result surfaces regardless of which execution's own display got
+    # dropped.
+    pending_result_path = st.session_state.get("last_result_csv_path")
+    if pending_result_path and Path(pending_result_path).exists():
+        display_df = _trim_for_display(pd.read_csv(pending_result_path))
+        st.success(f"Done - {len(display_df)} words processed.")
+        st.dataframe(display_df, use_container_width=True)
+        st.download_button(
+            "Download results (CSV)",
+            data=display_df.to_csv(index=False),
+            file_name="boundary_predictions.csv",
+            mime="text/csv",
+            key="download_last_result",
+        )
+        if st.button("Start a new run", type="primary", use_container_width=True, key="dismiss_last_result"):
+            try:
+                Path(pending_result_path).unlink()
+            except OSError:
+                pass
+            del st.session_state["last_result_csv_path"]
+            st.rerun()
+        st.stop()
+
     audio_file = st.file_uploader("Audio file", type=["wav", "mp3", "m4a", "flac", "ogg"])
     transcript_file = st.file_uploader("Transcript CSV (word, start_s, end_s)", type=["csv"])
 
@@ -392,6 +425,14 @@ elif st.session_state.screen == "upload":
                 )
                 st.button("Back to connect", on_click=_go, args=("connect",))
             else:
+                # The result goes to a stable spot that outlives this `with`
+                # block - not the auto-deleted tempdir the inputs use - so it
+                # survives even if this exact script execution never gets to
+                # display it itself (see the pending_result_path check above).
+                results_dir = Path(tempfile.gettempdir()) / "prosodic_pipeline_results"
+                results_dir.mkdir(parents=True, exist_ok=True)
+                result_path = results_dir / f"result_{uuid.uuid4().hex[:8]}.csv"
+
                 # Streamlit's uploaded files live in memory; write them to a temp
                 # folder so the pipeline functions (which expect file paths) can read them.
                 with tempfile.TemporaryDirectory() as tmp_dir:
@@ -401,12 +442,11 @@ elif st.session_state.screen == "upload":
                     audio_path.write_bytes(audio_file.getvalue())
                     transcript_path.write_bytes(transcript_file.getvalue())
 
-                    result_path = tmp_dir / "result.csv"
                     log_dir = tmp_dir / "logs"
 
                     try:
                         with st.spinner("Running pipeline - this can take a while on a busy SLURM queue..."):
-                            results_df = run_pipeline(
+                            run_pipeline(
                                 audio_path,
                                 transcript_path,
                                 host=run_host,
@@ -422,14 +462,7 @@ elif st.session_state.screen == "upload":
                             with st.expander(f"Log: {log_path.name}"):
                                 st.code(log_path.read_text(errors="replace"))
                     else:
-                        display_df = _trim_for_display(results_df)
-                        st.success(f"Done - {len(display_df)} words processed.")
-                        st.dataframe(display_df, use_container_width=True)
-                        st.download_button(
-                            "Download results (CSV)",
-                            data=display_df.to_csv(index=False),
-                            file_name="boundary_predictions.csv",
-                            mime="text/csv",
-                        )
+                        st.session_state.last_result_csv_path = str(result_path)
+                        st.rerun()
         finally:
             st.session_state.run_in_progress = False
