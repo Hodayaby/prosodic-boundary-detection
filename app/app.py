@@ -8,7 +8,16 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, for the `pipeline` package
 
-from pipeline_runner import BIUJobError, PipelineError, run_pipeline, test_connection
+from pipeline_runner import (
+    BIUJobError,
+    PipelineError,
+    check_pending_job_status,
+    discard_pending_job_by_dir,
+    find_pending_job,
+    recover_pending_job_result,
+    run_pipeline,
+    test_connection,
+)
 
 st.set_page_config(page_title="Prosodic Boundary Detection", layout="centered")
 
@@ -118,6 +127,20 @@ def _go(screen_name: str) -> None:
     st.session_state.screen = screen_name
 
 
+def _trim_for_display(results_df):
+    """Drop columns that are internal details, not useful to a person looking
+    at results: threshold is the same constant value on every row, and
+    chunk_id is an implementation detail of how the audio was split. Both
+    stay in the schema QC validates on the BIU side - only the copy shown/
+    downloaded here is trimmed. Shared by the normal Run flow and by
+    recovering a pending job, so both show the same columns.
+
+    Input: results_df - the full result table as returned by the pipeline.
+    Output: a copy with 'threshold' and 'chunk_id' removed, if present.
+    """
+    return results_df.drop(columns=["threshold", "chunk_id"], errors="ignore")
+
+
 # ---------------------------------------------------------------- intro ---
 if st.session_state.screen == "intro":
     st.markdown(
@@ -191,6 +214,80 @@ elif st.session_state.screen == "connect":
     # come back empty (e.g. after a page reload reset the widgets).
     if st.session_state.get("connection_ok") and ready:
         st.success("Connected to the server successfully.")
+
+        # A job from an earlier session that we lost track of (e.g. the
+        # connection dropped mid-poll) before its own cleanup could run -
+        # see record_pending_job/find_pending_jobs in pipeline/biu_sync.py.
+        # Offer to check on it and either fetch its results or delete it
+        # from the shared server, instead of leaving it there forever.
+        pending_job = find_pending_job(biu_host, biu_username)
+        if pending_job:
+            st.warning(
+                f"Found a job from an earlier session (started {pending_job['created_at']}) "
+                f"that we lost track of - possibly a dropped connection."
+            )
+            col_check, col_discard = st.columns(2)
+            with col_check:
+                check_clicked = st.button("Check status", use_container_width=True, key="check_pending")
+            with col_discard:
+                discard_clicked = st.button(
+                    "Discard (delete from server)", use_container_width=True, key="discard_pending"
+                )
+
+            if check_clicked:
+                try:
+                    with st.spinner("Checking job status..."):
+                        status = check_pending_job_status(
+                            biu_host, biu_username, biu_password, pending_job["slurm_job_id"]
+                        )
+                except BIUJobError as exc:
+                    st.error(f"Could not check job status: {exc}")
+                else:
+                    if status.state == "COMPLETED":
+                        st.session_state.pending_job_completed = True
+                    else:
+                        st.session_state.pending_job_completed = False
+                        if status.state in {
+                            "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "BOOT_FAIL",
+                        }:
+                            st.error(f"That job ended with state {status.state}.")
+                        else:
+                            st.info(f"Still {status.state.lower()} - check back again in a bit.")
+
+            if discard_clicked:
+                try:
+                    with st.spinner("Deleting from the server..."):
+                        discard_pending_job_by_dir(biu_host, biu_username, biu_password, pending_job["job_dir"])
+                except BIUJobError as exc:
+                    st.error(f"Could not delete: {exc}")
+                else:
+                    st.session_state.pending_job_completed = False
+                    st.success("Deleted from the server.")
+
+            if st.session_state.get("pending_job_completed"):
+                st.success("That job finished - fetch its results?")
+                if st.button("Fetch results", key="fetch_pending"):
+                    try:
+                        with st.spinner("Downloading results..."):
+                            result_path = Path(tempfile.mkdtemp()) / "result.csv"
+                            recovered_df = recover_pending_job_result(
+                                biu_host, biu_username, biu_password, pending_job["job_dir"], result_path
+                            )
+                    except BIUJobError as exc:
+                        st.error(f"Could not fetch results: {exc}")
+                    else:
+                        st.session_state.pending_job_completed = False
+                        display_df = _trim_for_display(recovered_df)
+                        st.success(f"Done - {len(display_df)} words processed.")
+                        st.dataframe(display_df, use_container_width=True)
+                        st.download_button(
+                            "Download results (CSV)",
+                            data=display_df.to_csv(index=False),
+                            file_name="boundary_predictions.csv",
+                            mime="text/csv",
+                            key="download_pending",
+                        )
+
         st.button(
             "Continue to upload →",
             type="primary",
@@ -275,12 +372,7 @@ elif st.session_state.screen == "upload":
                             with st.expander(f"Log: {log_path.name}"):
                                 st.code(log_path.read_text(errors="replace"))
                     else:
-                        # threshold (same constant value on every row) and
-                        # chunk_id (an internal detail of how the audio was
-                        # split for processing) are useful for QC on the BIU
-                        # side, not for the table a person looks at - dropped
-                        # only here, right before display/download.
-                        display_df = results_df.drop(columns=["threshold", "chunk_id"], errors="ignore")
+                        display_df = _trim_for_display(results_df)
                         st.success(f"Done - {len(display_df)} words processed.")
                         st.dataframe(display_df, use_container_width=True)
                         st.download_button(

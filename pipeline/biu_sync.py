@@ -18,6 +18,7 @@ BIU server has to happen separately, with real credentials.
 """
 
 import io
+import json
 import re
 import shlex
 import socket
@@ -25,6 +26,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -38,6 +40,12 @@ REMOTE_REPO_DIR = "ShiraAndHodaya/prosodic-boundary-detection"  # relative to $H
 REMOTE_JOBS_DIR = f"{REMOTE_REPO_DIR}/pipeline_jobs"
 REMOTE_ENTRY_POINT = "run_pipeline_job.py"  # BIU-side script: classify, merge, threshold, QC; takes --job-dir
 SSH_CONNECT_TIMEOUT_S = 15
+
+# Local record of jobs submitted but not yet confirmed cleaned up - e.g. the
+# connection dropped during polling before run_biu_job's own cleanup could
+# run. Never contains a password - only enough to look the job back up
+# (host, username, job_dir, slurm_job_id) on a later connection.
+PENDING_JOBS_FILE = Path(__file__).resolve().parent.parent / ".pending_jobs.json"
 
 MIN_JOB_TIME_S = 15 * 60
 MAX_JOB_TIME_S = 2 * 60 * 60
@@ -78,6 +86,61 @@ class JobStatus:
 
     slurm_job_id: str
     state: str  # e.g. PENDING, RUNNING, COMPLETED, FAILED, UNKNOWN
+
+
+# --- pending-job bookkeeping: recover a job we lost track of, on a later connection ---
+
+def _load_pending_jobs() -> List[dict]:
+    if not PENDING_JOBS_FILE.exists():
+        return []
+    try:
+        return json.loads(PENDING_JOBS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_pending_jobs(jobs: List[dict]) -> None:
+    PENDING_JOBS_FILE.write_text(json.dumps(jobs, indent=2))
+
+
+def record_pending_job(host: str, username: str, job_dir: str, slurm_job_id: str) -> None:
+    """Remember a job right after it's submitted, so it can be found again if
+    we lose track of it (e.g. a dropped connection during polling) before
+    run_biu_job's own cleanup gets to run.
+
+    Input: host, username - which server/account the job belongs to (the
+        password is never persisted); job_dir, slurm_job_id - identify the job.
+    Output: none.
+    """
+    jobs = _load_pending_jobs()
+    jobs.append({
+        "host": host,
+        "username": username,
+        "job_dir": job_dir,
+        "slurm_job_id": slurm_job_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    _save_pending_jobs(jobs)
+
+
+def clear_pending_job(job_dir: str) -> None:
+    """Forget a job once it's been fully handled (cleaned up or recovered).
+
+    Input: job_dir - the job's remote directory, as passed to record_pending_job.
+    Output: none.
+    """
+    jobs = [j for j in _load_pending_jobs() if j["job_dir"] != job_dir]
+    _save_pending_jobs(jobs)
+
+
+def find_pending_jobs(host: str, username: str) -> List[dict]:
+    """Jobs previously recorded for this server/account that were never
+    confirmed cleaned up - candidates to check on the next connection.
+
+    Input: host, username - the server/account to look up.
+    Output: list of {host, username, job_dir, slurm_job_id, created_at} dicts.
+    """
+    return [j for j in _load_pending_jobs() if j["host"] == host and j["username"] == username]
 
 
 # --- pure logic: no network calls, fully unit-testable ---
@@ -437,6 +500,7 @@ def run_biu_job(
         job_dir = upload_job(ssh, chunks, sample_rate=sample_rate, email=email)
         try:
             slurm_job_id = submit_slurm_job(ssh, job_dir)
+            record_pending_job(credentials.host, credentials.username, job_dir, slurm_job_id)
 
             start = time.monotonic()
             while True:
@@ -462,9 +526,51 @@ def run_biu_job(
             # right after the failure above), cleanup failing here must not
             # replace/hide a more useful error already in flight from the
             # try block (SLURM failure, timeout, download failure, etc.).
+            # The pending-job record is only cleared once cleanup actually
+            # succeeds - if it doesn't, the job stays findable via
+            # find_pending_jobs() on a later connection instead of being
+            # silently forgotten.
             try:
                 cleanup_job(ssh, job_dir)
+                clear_pending_job(job_dir)
             except BIUJobError:
                 pass
 
     return pd.read_csv(local_result_path)
+
+
+def check_pending_job(credentials: BIUCredentials, slurm_job_id: str) -> JobStatus:
+    """Check on a job recorded via record_pending_job that we previously lost track of.
+
+    Input: credentials - BIU login details; slurm_job_id - the job to check.
+    Output: its current JobStatus. Raises BIUJobError if the connection/check itself fails.
+    """
+    with connect(credentials) as ssh:
+        return poll_job_status_with_retry(ssh, slurm_job_id)
+
+
+def recover_pending_job(credentials: BIUCredentials, job_dir: str, local_result_path: Path) -> pd.DataFrame:
+    """Fetch a finished pending job's result table and clean up its remote directory.
+
+    Input: credentials - BIU login details; job_dir - the job's remote directory
+        (from find_pending_jobs); local_result_path - where to save the result.
+    Output: the result table as a DataFrame. Raises BIUJobError on failure - in
+        that case the pending-job record is left in place, not cleared.
+    """
+    with connect(credentials) as ssh:
+        download_result(ssh, job_dir, local_result_path)
+        cleanup_job(ssh, job_dir)
+    clear_pending_job(job_dir)
+    return pd.read_csv(local_result_path)
+
+
+def discard_pending_job(credentials: BIUCredentials, job_dir: str) -> None:
+    """Delete a pending job's remote directory without fetching its result.
+
+    Input: credentials - BIU login details; job_dir - the job's remote directory.
+    Output: none. Raises BIUJobError on failure - in that case the pending-job
+        record is left in place, not cleared.
+    """
+    with connect(credentials) as ssh:
+        cleanup_job(ssh, job_dir)
+    clear_pending_job(job_dir)

@@ -17,17 +17,30 @@ from pipeline.biu_sync import (
     _parse_sbatch_job_id,
     _run_command,
     build_slurm_script,
+    check_pending_job,
+    clear_pending_job,
     cleanup_job,
     connect,
+    discard_pending_job,
     download_logs,
     download_result,
     estimate_slurm_time,
+    find_pending_jobs,
     poll_job_status,
     poll_job_status_with_retry,
+    record_pending_job,
+    recover_pending_job,
     submit_slurm_job,
     upload_job,
 )
 from pipeline.chunker import AudioChunk
+
+
+@pytest.fixture(autouse=True)
+def _isolate_pending_jobs_file(tmp_path, monkeypatch):
+    """Every test gets its own empty pending-jobs file instead of touching
+    the real one in the repo root."""
+    monkeypatch.setattr(biu_sync, "PENDING_JOBS_FILE", tmp_path / ".pending_jobs.json")
 
 
 def _make_chunk(chunk_id="chunk_0", duration_s=2.0, sr=16000):
@@ -502,6 +515,136 @@ def test_run_biu_job_cleanup_drop_does_not_break_the_happy_path(monkeypatch, tmp
     df = biu_sync.run_biu_job(creds, [_make_chunk()], result_path, poll_interval_s=0)
 
     assert list(df["word"]) == ["hi"]  # no exception - the job still succeeded
+
+
+# --- pending-job recovery: finding and resolving a job we lost track of ---
+
+def test_record_then_find_pending_job_round_trips():
+    record_pending_job("biu.example.edu", "shira", "pipeline_jobs/job1", "42")
+
+    found = find_pending_jobs("biu.example.edu", "shira")
+    assert len(found) == 1
+    assert found[0]["job_dir"] == "pipeline_jobs/job1"
+    assert found[0]["slurm_job_id"] == "42"
+    assert "created_at" in found[0]
+
+
+def test_find_pending_jobs_never_includes_a_password():
+    record_pending_job("biu.example.edu", "shira", "pipeline_jobs/job1", "42")
+
+    found = find_pending_jobs("biu.example.edu", "shira")
+    assert "password" not in found[0]
+
+
+def test_find_pending_jobs_filters_by_host_and_username():
+    record_pending_job("biu.example.edu", "shira", "pipeline_jobs/job1", "42")
+    record_pending_job("other-host.edu", "shira", "pipeline_jobs/job2", "43")
+    record_pending_job("biu.example.edu", "hodaya", "pipeline_jobs/job3", "44")
+
+    found = find_pending_jobs("biu.example.edu", "shira")
+    assert [j["job_dir"] for j in found] == ["pipeline_jobs/job1"]
+
+
+def test_clear_pending_job_removes_only_that_job():
+    record_pending_job("biu.example.edu", "shira", "pipeline_jobs/job1", "42")
+    record_pending_job("biu.example.edu", "shira", "pipeline_jobs/job2", "43")
+
+    clear_pending_job("pipeline_jobs/job1")
+
+    found = find_pending_jobs("biu.example.edu", "shira")
+    assert [j["job_dir"] for j in found] == ["pipeline_jobs/job2"]
+
+
+def test_run_biu_job_clears_the_pending_record_on_normal_completion(monkeypatch, tmp_path):
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "upload_job", lambda ssh, chunks, sample_rate, email: "pipeline_jobs/job1")
+    monkeypatch.setattr(biu_sync, "submit_slurm_job", lambda ssh, job_dir: "42")
+    monkeypatch.setattr(biu_sync, "poll_job_status_with_retry", lambda ssh, job_id: JobStatus(job_id, "COMPLETED"))
+    monkeypatch.setattr(biu_sync, "cleanup_job", lambda ssh, job_dir: None)
+
+    result_path = tmp_path / "result.csv"
+    pd.DataFrame({"word": ["hi"]}).to_csv(result_path, index=False)
+    monkeypatch.setattr(biu_sync, "download_result", lambda ssh, job_dir, local_path: None)
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    biu_sync.run_biu_job(creds, [_make_chunk()], result_path, poll_interval_s=0)
+
+    assert find_pending_jobs("biu.example.edu", "shira") == []
+
+
+def test_run_biu_job_leaves_the_pending_record_when_cleanup_cannot_run(monkeypatch, tmp_path):
+    """If the connection is gone by the time cleanup runs, the job must stay
+    findable via find_pending_jobs() on a later connection - not be silently
+    forgotten just because we couldn't clean it up this time."""
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "upload_job", lambda ssh, chunks, sample_rate, email: "pipeline_jobs/job1")
+    monkeypatch.setattr(biu_sync, "submit_slurm_job", lambda ssh, job_dir: "42")
+    monkeypatch.setattr(biu_sync, "poll_job_status_with_retry", lambda ssh, job_id: JobStatus(job_id, "COMPLETED"))
+    monkeypatch.setattr(biu_sync, "download_result", lambda ssh, job_dir, local_path: None)
+
+    def _cleanup_drops(ssh, job_dir):
+        raise BIUJobError("Lost connection to BIU while running a remote command: Socket is closed")
+
+    monkeypatch.setattr(biu_sync, "cleanup_job", _cleanup_drops)
+
+    result_path = tmp_path / "result.csv"
+    pd.DataFrame({"word": ["hi"]}).to_csv(result_path, index=False)
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    biu_sync.run_biu_job(creds, [_make_chunk()], result_path, poll_interval_s=0)
+
+    found = find_pending_jobs("biu.example.edu", "shira")
+    assert [j["job_dir"] for j in found] == ["pipeline_jobs/job1"]
+
+
+def test_check_pending_job_returns_current_status(monkeypatch):
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "poll_job_status_with_retry", lambda ssh, job_id: JobStatus(job_id, "COMPLETED"))
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    status = check_pending_job(creds, "42")
+
+    assert status.state == "COMPLETED"
+
+
+def test_recover_pending_job_downloads_cleans_up_and_clears_the_record(monkeypatch, tmp_path):
+    record_pending_job("biu.example.edu", "shira", "pipeline_jobs/job1", "42")
+
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+
+    result_path = tmp_path / "result.csv"
+    pd.DataFrame({"word": ["hi"]}).to_csv(result_path, index=False)
+    monkeypatch.setattr(biu_sync, "download_result", lambda ssh, job_dir, local_path: None)
+
+    cleanup_calls = []
+    monkeypatch.setattr(biu_sync, "cleanup_job", lambda ssh, job_dir: cleanup_calls.append(job_dir))
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    df = recover_pending_job(creds, "pipeline_jobs/job1", result_path)
+
+    assert list(df["word"]) == ["hi"]
+    assert cleanup_calls == ["pipeline_jobs/job1"]
+    assert find_pending_jobs("biu.example.edu", "shira") == []
+
+
+def test_discard_pending_job_cleans_up_and_clears_the_record(monkeypatch):
+    record_pending_job("biu.example.edu", "shira", "pipeline_jobs/job1", "42")
+
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+
+    cleanup_calls = []
+    monkeypatch.setattr(biu_sync, "cleanup_job", lambda ssh, job_dir: cleanup_calls.append(job_dir))
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    discard_pending_job(creds, "pipeline_jobs/job1")
+
+    assert cleanup_calls == ["pipeline_jobs/job1"]
+    assert find_pending_jobs("biu.example.edu", "shira") == []
 
 
 class _FakeConnectCtx:

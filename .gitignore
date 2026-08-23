@@ -5,6 +5,9 @@ __pycache__/
 venv/
 env/
 
+# Local machine state - not shared/committed
+.pending_jobs.json
+
 # Data
 data/*
 !data/.gitkeep
