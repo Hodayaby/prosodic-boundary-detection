@@ -4,7 +4,7 @@ Invoked by the SLURM job pipeline/biu_sync.py submits (its REMOTE_ENTRY_POINT).
 Reads the chunks from a job's directory - <chunk_id>.wav plus
 <chunk_id>_words.csv per chunk, uploaded by biu_sync.upload_job() - runs the
 trained model on each chunk using the same forced-transcript decoding
-predict_labels_for_words() already uses in evaluate_boundary_final2.py,
+predict_labels_for_words() already uses in model_development/evaluate_boundary_final2.py,
 merges the per-chunk predictions in order (chunk_audio() guarantees no
 overlap between chunks, so this is a plain concatenation), applies the
 probability threshold, runs a few quality-control sanity checks, and writes
@@ -23,10 +23,11 @@ import pandas as pd
 import torch
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "model_development"))
 from evaluate_boundary_final2 import predict_labels_for_words
 from pipeline.schema import OUTPUT_COLUMNS, validate_output_schema
 
-# Avoid cuDNN initialization crash on this cluster, as in evaluate_boundary_final2.py.
+# Avoid cuDNN initialization crash on this cluster, as in model_development/evaluate_boundary_final2.py.
 torch.backends.cudnn.enabled = False
 
 DEFAULT_MODEL_DIR = "whisper-binary-boundary-model2"

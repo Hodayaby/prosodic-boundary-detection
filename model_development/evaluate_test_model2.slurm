@@ -24,7 +24,9 @@
 
 set -e
 
-
+# Submit this with `sbatch model_development/evaluate_test_model2.slurm` from
+# the repo root - $SLURM_SUBMIT_DIR then IS the repo root, which is what the
+# relative paths below (data/splits/..., model_development/...) assume.
 
 cd $SLURM_SUBMIT_DIR
 
@@ -86,7 +88,7 @@ echo "========================================"
 
 
 
-python evaluate_boundary_final2.py \
+python model_development/evaluate_boundary_final2.py \
   --eval-csv data/splits/test_chunks.csv \
   --output-dir evaluation_outputs3_test_t05 \
   --threshold 0.5

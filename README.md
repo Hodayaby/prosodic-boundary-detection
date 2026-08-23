@@ -104,8 +104,27 @@ run_pipeline_job.py     Entry point that runs on the BIU side, inside the SLURM 
                           classifies each chunk, merges the predictions, applies the
                           threshold, and runs quality control before returning results
 
+model_development/      How the model itself was built - training, evaluation, SLURM
+                          launchers for both. Not part of the production pipeline above;
+                          run_pipeline_job.py just reuses its decoding logic.
+  train_whisper_binary.py    Fine-tunes Whisper on the labeled boundary data
+  train_whisper2.slurm        SLURM launcher for the above
+  evaluate_boundary_final2.py Forced-transcript evaluation, metrics, error analysis
+  evaluate_test_model2.slurm  SLURM launcher for the above
+  create_splits.py            Builds the fixed train/validation/test split
+  prepare_data.py              Data prep
+  prepare_data_with_alignment.py Data prep, keeping the word-to-chunk alignment
+  data_cleaning.py             Shared label/word cleaning used while preparing data
+  fix_llms_csv.py              One-off cleanup for the Karpathy transcript's timings
+  analyze_false_positives.py   Manual error-analysis tooling
+
 tests/                   Automated tests, one file per pipeline/ and app/ module
 ```
+
+Submitting a `model_development/*.slurm` job on BIU: run `sbatch` from the
+repo root, e.g. `sbatch model_development/train_whisper2.slurm` - not from
+inside `model_development/` itself, since the scripts assume the repo root
+as their working directory.
 
 ## Transcript CSV format
 
