@@ -378,7 +378,10 @@ elif st.session_state.screen == "upload":
         # result that just finished apart from one left over from earlier -
         # both look identical otherwise.
         finished_at = datetime.fromtimestamp(pending_result_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-        st.success(f"Done - {len(display_df)} words processed (finished {finished_at}).")
+        st.success(
+            f"Showing the result of your last run — Done: {len(display_df)} words "
+            f"processed (finished {finished_at})."
+        )
         st.dataframe(display_df, use_container_width=True)
         st.download_button(
             "Download results (CSV)",
