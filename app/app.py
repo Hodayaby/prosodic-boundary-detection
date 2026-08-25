@@ -24,7 +24,11 @@ from pipeline_runner import (
     test_connection,
 )
 
-st.set_page_config(page_title="Prosodic Boundary Detection", layout="centered")
+st.set_page_config(
+    page_title="Prosodic Boundary Detection",
+    page_icon=str(Path(__file__).resolve().parent / "favicon.png"),
+    layout="centered",
+)
 
 css_path = Path(__file__).resolve().parent / "style.css"
 st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
@@ -132,6 +136,23 @@ def _go(screen_name: str) -> None:
     st.session_state.screen = screen_name
 
 
+def _step_dots(current: int, total: int = 3) -> str:
+    """Render the wizard's step-progress indicator: one dot per step (connect,
+    upload, results), filled violet from the first step through the current
+    one, empty for what's still ahead. Replaces the old plain-text "Step 01"/
+    "Step 02" label, which only ever showed where you were, not how many
+    steps there are in total or how far along that is.
+
+    Input: current - the 1-indexed step now showing.
+    Output: HTML markup for the dot row.
+    """
+    dots = "".join(
+        f'<span class="step-dot{" filled" if i <= current else ""}"></span>'
+        for i in range(1, total + 1)
+    )
+    return f'<div class="step-dots">{dots}</div>'
+
+
 def _trim_for_display(results_df):
     """Drop columns that are internal details, not useful to a person looking
     at results: threshold is the same constant value on every row, and
@@ -207,9 +228,9 @@ if st.session_state.screen == "intro":
 elif st.session_state.screen == "connect":
     st.markdown(_CORNER_GLOW, unsafe_allow_html=True)
     st.markdown(
-        """
+        f"""
         <div class="screen">
-          <p class="section-label">Step 01</p>
+          {_step_dots(1)}
           <h2 class="screen-title">Connect to the server.</h2>
           <p class="screen-sub">Enter your BIU lab account details - used to open the connection once you run a job.</p>
         </div>
@@ -345,16 +366,6 @@ elif st.session_state.screen == "connect":
 # --------------------------------------------------------------- upload ---
 elif st.session_state.screen == "upload":
     st.markdown(_CORNER_GLOW, unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="screen">
-          <p class="section-label">Step 02</p>
-          <h2 class="screen-title">Upload your files.</h2>
-          <p class="screen-sub">An audio file and its word-level transcript are both required.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
     # A finished run's result, if one is waiting to be shown. Checked by
     # looking at the results folder itself, not session_state - a
@@ -370,6 +381,16 @@ elif st.session_state.screen == "upload":
     results_dir = Path(tempfile.gettempdir()) / "prosodic_pipeline_results"
     existing_results = sorted(results_dir.glob("result_*.csv")) if results_dir.exists() else []
     if existing_results:
+        st.markdown(
+            f"""
+            <div class="screen">
+              {_step_dots(3)}
+              <h2 class="screen-title">Your results.</h2>
+              <p class="screen-sub">The prosodic boundaries detected in your last run.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         pending_result_path = existing_results[0]
         display_df = _trim_for_display(pd.read_csv(pending_result_path))
         # The exact moment this finished isn't visible anywhere else, so
@@ -394,6 +415,17 @@ elif st.session_state.screen == "upload":
             pending_result_path.unlink(missing_ok=True)
             st.rerun()
         st.stop()
+
+    st.markdown(
+        f"""
+        <div class="screen">
+          {_step_dots(2)}
+          <h2 class="screen-title">Upload your files.</h2>
+          <p class="screen-sub">An audio file and its word-level transcript are both required.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     audio_file = st.file_uploader("Audio file", type=["wav", "mp3", "m4a", "flac", "ogg"])
     transcript_file = st.file_uploader("Transcript CSV (word, start_s, end_s)", type=["csv"])

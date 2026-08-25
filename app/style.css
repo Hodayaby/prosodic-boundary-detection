@@ -188,14 +188,25 @@ html, body, [class*="css"] {
     margin-bottom: 1.5rem;
 }
 
-/* ---------- Section headers ---------- */
-.section-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--violet);
-    margin: 2rem 0 0.25rem 0;
+/* ---------- Step progress ---------- */
+/* One dot per wizard step (connect, upload, results) - filled from the
+   first step through whichever one is current, so the whole wizard is
+   visible at once instead of just a "Step 02" label with no sense of how
+   many steps there are or how far along that is. */
+.step-dots {
+    display: flex;
+    gap: 0.4rem;
+    margin: 2rem 0 0.75rem 0;
+}
+.step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--hairline);
+    transition: background-color 0.3s ease;
+}
+.step-dot.filled {
+    background: var(--violet);
 }
 hr.divider {
     border: none;
