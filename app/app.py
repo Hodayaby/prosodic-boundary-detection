@@ -4,6 +4,7 @@ import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -320,7 +321,10 @@ elif st.session_state.screen == "connect":
                     else:
                         st.session_state.pending_job_completed = False
                         display_df = _trim_for_display(recovered_df)
-                        st.success(f"Done - {len(display_df)} words processed.")
+                        st.success(
+                            f"Done - {len(display_df)} words processed "
+                            f"(from the job started {pending_job['created_at']})."
+                        )
                         st.dataframe(display_df, use_container_width=True)
                         st.download_button(
                             "Download results (CSV)",
@@ -368,7 +372,13 @@ elif st.session_state.screen == "upload":
     if existing_results:
         pending_result_path = existing_results[0]
         display_df = _trim_for_display(pd.read_csv(pending_result_path))
-        st.success(f"Done - {len(display_df)} words processed.")
+        # The exact moment this finished isn't visible anywhere else, so
+        # someone landing on an already-waiting result (a different session,
+        # after a reload, or simply coming back later) has no way to tell a
+        # result that just finished apart from one left over from earlier -
+        # both look identical otherwise.
+        finished_at = datetime.fromtimestamp(pending_result_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        st.success(f"Done - {len(display_df)} words processed (finished {finished_at}).")
         st.dataframe(display_df, use_container_width=True)
         st.download_button(
             "Download results (CSV)",
