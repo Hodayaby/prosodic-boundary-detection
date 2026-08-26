@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import pandas as pd
 import paramiko
@@ -479,6 +479,7 @@ def run_biu_job(
     poll_interval_s: float = 10.0,
     timeout_s: float = MAX_JOB_TIME_S + 300,
     local_log_dir: Optional[Path] = None,
+    on_status: Optional[Callable[[JobStatus], None]] = None,
 ) -> pd.DataFrame:
     """Upload chunks, run the SLURM job on BIU, wait for it, and return the final result table.
 
@@ -493,7 +494,10 @@ def run_biu_job(
         local_result_path - where to save the final result table; sample_rate -
         the chunks' sample rate; email - optional SLURM notification address;
         poll_interval_s - seconds between status checks; timeout_s - give up
-        after this long; local_log_dir - where to save logs on failure.
+        after this long; local_log_dir - where to save logs on failure;
+        on_status - optional callback fired with the JobStatus after every
+        poll, e.g. to show the SLURM job's live state (PENDING/RUNNING/...)
+        while the caller waits.
     Output: the final result table as a DataFrame.
     """
     with connect(credentials) as ssh:
@@ -505,6 +509,8 @@ def run_biu_job(
             start = time.monotonic()
             while True:
                 status = poll_job_status_with_retry(ssh, slurm_job_id)
+                if on_status:
+                    on_status(status)
 
                 if status.state == "COMPLETED":
                     break
