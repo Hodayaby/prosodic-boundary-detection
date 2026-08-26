@@ -182,6 +182,13 @@ html, body, [class*="css"] {
     font-size: 1.9rem;
     margin: 0 0 0.25rem 0;
 }
+/* Streamlit auto-adds a "link to heading" anchor icon to every h1-h6 it
+   renders, including raw HTML ones like screen-title - not something we
+   put there, and not useful on a wizard step title (there's nowhere else
+   to link to it from). */
+.screen-title [data-testid="stHeaderActionElements"] {
+    display: none;
+}
 .screen-sub {
     color: var(--muted);
     font-size: 0.9rem;
