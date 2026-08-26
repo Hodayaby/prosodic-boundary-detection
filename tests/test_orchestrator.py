@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import numpy as np
@@ -151,34 +150,3 @@ def test_on_stage_event_fires_for_every_stage_and_slurm_poll(monkeypatch, tmp_pa
 def test_pipeline_error_rejects_unknown_stage():
     with pytest.raises(ValueError):
         PipelineError("not_a_real_stage", "oops")
-
-
-def test_happy_path_writes_per_job_log_with_all_stages(monkeypatch, tmp_path):
-    calls = []
-    _patch_happy_path(monkeypatch, calls)
-
-    run_pipeline_job("a.wav", "t.csv", _creds(), tmp_path / "result.csv")
-
-    log_files = list(tmp_path.glob("*.log"))
-    assert len(log_files) == 1
-    records = [json.loads(line) for line in log_files[0].read_text(encoding="utf-8").splitlines()]
-    stages_completed = [r["stage"] for r in records if r["event"] == "completed"]
-    assert stages_completed == [
-        "input_validation", "audio_preprocessing", "chunking", "transcript_alignment", "biu_sync",
-    ]
-
-
-def test_stage_failure_writes_failed_event_to_job_log(monkeypatch, tmp_path):
-    calls = []
-    _patch_happy_path(monkeypatch, calls)
-    monkeypatch.setattr(orchestrator, "chunk_audio", lambda audio, transcript: (_ for _ in ()).throw(ValueError("bad chunk math")))
-
-    with pytest.raises(PipelineError):
-        run_pipeline_job("a.wav", "t.csv", _creds(), tmp_path / "result.csv")
-
-    log_files = list(tmp_path.glob("*.log"))
-    assert len(log_files) == 1
-    records = [json.loads(line) for line in log_files[0].read_text(encoding="utf-8").splitlines()]
-    failed = [r for r in records if r["event"] == "failed"]
-    assert len(failed) == 1
-    assert failed[0]["stage"] == "chunking"

@@ -22,7 +22,7 @@ from pipeline.audio_preprocessing import preprocess_audio
 from pipeline.biu_sync import BIUCredentials, BIUJobError, run_biu_job
 from pipeline.chunker import chunk_audio
 from pipeline.input_validation import InputValidationError, validate_audio, validate_transcript_csv
-from pipeline.job_logging import StageEventCallback, get_job_logger, log_stage, new_job_id
+from pipeline.job_logging import StageEventCallback, log_stage
 from pipeline.transcript_alignment import AlignmentError, validate_alignment
 
 PIPELINE_STAGES = (
@@ -66,46 +66,43 @@ def run_pipeline_job(
     Input: audio_path, transcript_csv_path - the job's two input files;
         biu_credentials - BIU login details; local_result_path - where to
         save the final result table; email - optional SLURM notification
-        address; local_log_dir - where to save logs if biu_sync fails
-        (also where this job's structured log file is written, if given -
-        otherwise it's written next to local_result_path); on_stage_event -
-        optional callback fired on each stage's start/completed/failed (and,
-        during biu_sync, on each SLURM poll) - e.g. to drive a live status
-        display. See pipeline.job_logging.StageEventCallback.
+        address; local_log_dir - where to save logs if biu_sync fails;
+        on_stage_event - optional callback fired on each stage's
+        start/completed/failed (and, during biu_sync, on each SLURM poll) -
+        e.g. to drive a live status display. See
+        pipeline.job_logging.StageEventCallback.
     Output: the final result table as a DataFrame.
     """
     local_result_path = Path(local_result_path)
-    job_id = new_job_id()
-    logger = get_job_logger(job_id, Path(local_log_dir) if local_log_dir else local_result_path.parent)
 
-    with log_stage(logger, "input_validation", on_event=on_stage_event):
+    with log_stage("input_validation", on_event=on_stage_event):
         try:
             validate_audio(audio_path)
             transcript = validate_transcript_csv(transcript_csv_path)
         except InputValidationError as exc:
             raise PipelineError("input_validation", str(exc)) from exc
 
-    with log_stage(logger, "audio_preprocessing", on_event=on_stage_event) as metrics:
+    with log_stage("audio_preprocessing", on_event=on_stage_event) as metrics:
         try:
             audio = preprocess_audio(audio_path)
         except Exception as exc:
             raise PipelineError("audio_preprocessing", str(exc)) from exc
         metrics["duration_s"] = audio.duration_s
 
-    with log_stage(logger, "chunking", on_event=on_stage_event) as metrics:
+    with log_stage("chunking", on_event=on_stage_event) as metrics:
         try:
             chunks = chunk_audio(audio, transcript)
         except Exception as exc:
             raise PipelineError("chunking", str(exc)) from exc
         metrics["num_chunks"] = len(chunks)
 
-    with log_stage(logger, "transcript_alignment", on_event=on_stage_event):
+    with log_stage("transcript_alignment", on_event=on_stage_event):
         try:
             validate_alignment(audio, transcript, chunks)
         except AlignmentError as exc:
             raise PipelineError("transcript_alignment", str(exc)) from exc
 
-    with log_stage(logger, "biu_sync", on_event=on_stage_event):
+    with log_stage("biu_sync", on_event=on_stage_event):
         try:
             on_slurm_status = None
             if on_stage_event:
