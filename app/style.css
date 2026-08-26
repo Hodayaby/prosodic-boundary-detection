@@ -11,22 +11,36 @@
     --surface: #fafafd;
 }
 
-/* Dark mode follows the OS/browser preference, same as Streamlit's own
-   native theme - there's no separate in-app toggle to hook into. Only
-   the tokens change here; every rule below already reads through these
-   variables, so nothing else needs a dark-specific override. Accent
-   colors (violet/blue) and the primary button's gradient stay exactly
-   as they are in light mode - they're already vivid enough to read
-   against either background, and buttons specifically aren't meant to
-   change look between themes. */
+/* Dark mode. Only the tokens change here; every rule below already reads
+   through these variables, so nothing else needs a dark-specific override.
+   Accent colors (violet/blue) and the primary button's gradient stay
+   exactly as they are in light mode - they're already vivid enough to
+   read against either background, and buttons specifically aren't meant
+   to change look between themes.
+
+   Two triggers, because Streamlit's theme has two independent sources:
+   the @media query gives an instant best guess from the OS/browser
+   preference (covers the moment before app.py's _sync_theme_to_root
+   component has run); the [data-theme="dark"] rule is driven by that
+   component reading Streamlit's own resolved theme back (via the
+   color-scheme it sets on the app root) and wins once it's run - that's
+   the only way to see an explicit in-app "Dark"/"Light" choice, which
+   overrides "System" independently of the OS preference entirely. */
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
         --ink: #f0f0f5;
         --paper: #14141c;
         --hairline: #2e2e3d;
         --muted: #9d9dab;
         --surface: #1c1c28;
     }
+}
+:root[data-theme="dark"] {
+    --ink: #f0f0f5;
+    --paper: #14141c;
+    --hairline: #2e2e3d;
+    --muted: #9d9dab;
+    --surface: #1c1c28;
 }
 
 /* Base page */

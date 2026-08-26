@@ -33,6 +33,52 @@ st.set_page_config(
 css_path = Path(__file__).resolve().parent / "style.css"
 st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
 
+
+def _sync_theme_to_root() -> None:
+    """Mirror Streamlit's actual resolved theme onto a data-theme attribute
+    on the real page's <html>, so our own dark-mode CSS can follow it.
+
+    prefers-color-scheme alone only reflects the OS/browser preference -
+    it has no idea a user picked "Dark" (or "Light") explicitly in
+    Streamlit's own menu, overriding "System". Streamlit does apply that
+    choice to its own native widgets regardless, via the standard
+    `color-scheme` CSS property on the app root - reading that back gives
+    us the one signal that's correct in every case (System resolved
+    light, System resolved dark, or an explicit override).
+
+    Installed once via a tiny invisible component; a MutationObserver
+    keeps it in sync if the user changes the theme afterward without a
+    full page reload.
+
+    Output: none (renders an invisible 0-height component).
+    """
+    components.html(
+        """
+        <script>
+        (function() {
+            var doc = window.parent.document;
+            function sync() {
+                var app = doc.querySelector('[data-testid="stApp"]');
+                if (!app) return;
+                doc.documentElement.setAttribute('data-theme', getComputedStyle(app).colorScheme);
+            }
+            sync();
+            if (!window.parent.__themeSyncObserverInstalled) {
+                window.parent.__themeSyncObserverInstalled = true;
+                var app = doc.querySelector('[data-testid="stApp"]');
+                if (app) {
+                    new MutationObserver(sync).observe(app, {attributes: true, attributeFilter: ["style", "class"]});
+                }
+            }
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+
+_sync_theme_to_root()
+
 # Quiet corner accents used on every screen after the intro (connect,
 # upload, and - since results render further down the same upload screen -
 # the results view too).
