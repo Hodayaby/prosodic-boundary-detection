@@ -26,6 +26,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit.runtime.scriptrunner_utils.exceptions import StopException
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, for the `pipeline` package
 
@@ -239,6 +240,36 @@ _STAGE_LABELS = {
 }
 
 
+def _safe_update(render: callable) -> None:
+    """Run a Streamlit display update, swallowing StopException if the
+    session doesn't want it anymore.
+
+    Streamlit raises StopException (not a plain Exception - it's a
+    BaseException subclass, so a bare `except Exception` doesn't catch
+    it) from inside a widget call like `st.markdown` the moment this
+    session gets superseded by a newer interaction - a refresh, or even
+    just clicking Run a second time, even though the guard against a
+    literal duplicate submission (run_in_progress) already stops that
+    click from doing anything else. Confirmed directly: before the live
+    per-stage status was added, biu_sync.py's polling loop had no
+    Streamlit call inside it at all, so nothing there could ever raise
+    this - a superseded session's loop just kept running untouched.
+    Once it did, letting this propagate meant a superseded session's
+    still-live BIU job hit run_biu_job's own `finally` immediately -
+    which deletes the job's remote directory - while the real job kept
+    running there. It then failed on BIU's own end shortly after,
+    because its working directory had disappeared out from under it.
+
+    Input: render - a zero-argument callable that performs one Streamlit
+        display update (e.g. a lambda wrapping the actual st.* call).
+    Output: none.
+    """
+    try:
+        render()
+    except StopException:
+        pass
+
+
 def _make_status_callback(placeholder):
     """Build an on_stage_event callback that shows the pipeline's live
     progress in `placeholder`. Streamlit sends a placeholder's updates to
@@ -255,7 +286,7 @@ def _make_status_callback(placeholder):
         # judgment, so it gets the site's own accent color rather than
         # Streamlit's universal alert colors (those stay standard - see
         # the "failed" branch below).
-        placeholder.markdown(f'<div class="status-line">{text}</div>', unsafe_allow_html=True)
+        _safe_update(lambda: placeholder.markdown(f'<div class="status-line">{text}</div>', unsafe_allow_html=True))
 
     def _callback(stage, event, fields):
         label = _STAGE_LABELS.get(stage, stage)
@@ -264,7 +295,7 @@ def _make_status_callback(placeholder):
         elif event == "completed":
             _status(f"Done: {label}.")
         elif event == "failed":
-            placeholder.error(f"Failed: {label}.")
+            _safe_update(lambda: placeholder.error(f"Failed: {label}."))
         elif event == "polling":
             _status(f"Running: {label} - SLURM job {fields['slurm_job_id']} ({fields['slurm_state']})")
 
