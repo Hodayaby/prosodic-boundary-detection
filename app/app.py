@@ -367,7 +367,7 @@ if st.session_state.screen == "intro":
             {_brain_svg()}
           </div>
           <h1 class="hero-title">Welcome.</h1>
-          <p class="hero-sub">Prosodic Boundary Detection &mdash; mapping where sentences end.</p>
+          <p class="hero-sub">Prosodic Boundary Detection - mapping where sentences end.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -581,7 +581,7 @@ elif st.session_state.screen == "upload":
         # both look identical otherwise.
         finished_at = datetime.fromtimestamp(pending_result_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         st.success(
-            f"Showing the result of your last run — Done: {len(display_df)} words "
+            f"Showing the result of your last run - Done: {len(display_df)} words "
             f"processed (finished {finished_at})."
         )
         st.dataframe(display_df, use_container_width=True)
