@@ -77,7 +77,7 @@ def classify_chunk(model, processor, device: str, wav_path: Path, words_df: pd.D
 
 
 def apply_threshold(merged: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """KAN-58: turn boundary_probability into the final binary decision.
+    """Turn boundary_probability into the final binary decision.
     Input: merged - concatenated chunk predictions; threshold - decision cutoff.
     Output: DataFrame with pipeline/schema.py's OUTPUT_COLUMNS, in order."""
     result = merged.copy()
@@ -87,7 +87,7 @@ def apply_threshold(merged: pd.DataFrame, threshold: float) -> pd.DataFrame:
 
 
 def quality_check(result: pd.DataFrame) -> None:
-    """KAN-59: sanity-check the final output before it's written out.
+    """Sanity-check the final output before it's written out.
     Input: result - the final, thresholded output table.
     Output: none. Raises ValueError (or SchemaError) on the first check that fails.
     """
@@ -132,7 +132,7 @@ def main() -> None:
         print(f"Classifying {chunk_id} ({len(words_df)} words)")
         chunk_tables.append(classify_chunk(model, processor, device, wav_path, words_df, chunk_id))
 
-    # KAN-51 merge: plain concatenation - chunk_audio() guarantees no overlap.
+    # Plain concatenation, not a real merge - chunk_audio() guarantees no overlap between chunks.
     merged = pd.concat(chunk_tables, ignore_index=True)
 
     result = apply_threshold(merged, args.threshold)

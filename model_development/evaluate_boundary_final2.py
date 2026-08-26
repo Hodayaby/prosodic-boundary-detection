@@ -171,6 +171,10 @@ def encode_prefix(tokenizer, prefix_text: str) -> List[int]:
 
 
 def get_label_token_ids(tokenizer) -> Tuple[List[int], List[int]]:
+    # Whisper's BPE tokenizer encodes a digit differently as the very first
+    # token of a sequence vs. after a space later on, so the label ids for
+    # "the first word" and "every word after that" have to be looked up
+    # separately - reusing one set for both would read the wrong logits.
     first_label_token_ids = [
         tokenizer.encode("0", add_special_tokens=False)[0],
         tokenizer.encode("1", add_special_tokens=False)[0],
@@ -190,6 +194,17 @@ def predict_labels_for_words(
     device: str,
     threshold: float,
 ) -> List[Dict]:
+    """Force-decode one boundary label per known word, instead of letting
+    Whisper freely generate the whole "0 word 0 word 1 word..." sequence.
+
+    Free generation was the baseline approach (prepare_data.py) and it can
+    drift off the real transcript - skip, repeat, or invent words - which
+    breaks any word-by-word comparison against ground truth. Here the actual
+    words are fed into the decoder one at a time as a fixed prefix, and at
+    each step only the "0"/"1" label-token logits are read off - the model
+    never gets a chance to predict the word itself, only the boundary
+    before it.
+    """
     tokenizer = processor.tokenizer
     first_label_token_ids, next_label_token_ids = get_label_token_ids(tokenizer)
 
@@ -977,6 +992,13 @@ def main() -> None:
     high_conf_fp = fp[fp["prob_1"] >= args.high_conf_fp_threshold].copy()
     high_conf_fp_count = len(high_conf_fp)
 
+    # The deeper FP files (context around each error, original pre-binary
+    # labels) are only worth generating when there's actually a real FP
+    # problem to look at - a handful of one-off errors don't need it. Two
+    # ways to trip that: enough *confident* false positives on their own
+    # (the model being confidently wrong is the more concerning case), or
+    # false positives making up a large enough share of everything the
+    # model flagged as a boundary.
     predicted_boundary_count = max(metrics["predicted_boundary_count"], 1)
     fp_share_among_predictions = metrics["fp"] / predicted_boundary_count
     fp_deep_needed = (

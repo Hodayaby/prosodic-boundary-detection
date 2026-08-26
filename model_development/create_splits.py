@@ -139,6 +139,13 @@ def split_chunks(chunks_df):
     """
     Splits chunks into train / validation / test.
 
+    Splitting is done at the chunk level, not the word level - words inside
+    the same chunk are neighbors in the same recording and highly
+    correlated, so splitting by word would leak context between train and
+    test (a model could partly "recognize" a test recording it already saw
+    most of during training). filter_words_by_chunks() below then pulls the
+    matching words for whichever chunks ended up in each split.
+
     We stratify by has_boundary when possible, so every split has
     a reasonable amount of chunks with boundaries.
     """

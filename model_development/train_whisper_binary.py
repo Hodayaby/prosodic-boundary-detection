@@ -142,6 +142,10 @@ model.config.suppress_tokens = []
 
 # ============================================================
 # Check how 0/1 labels are tokenized
+# The whole approach depends on the model generating exactly a "0" or "1"
+# token right before each word, so it's worth confirming up front that
+# Whisper's tokenizer actually treats these as clean single tokens (and that
+# a leading space changes the token id) instead of finding out mid-training.
 # ============================================================
 
 print("\nTokenization check:")
@@ -218,6 +222,10 @@ class DataCollatorSpeechSeq2SeqWithPadding:
             -100
         )
 
+        # The tokenizer sometimes prepends the decoder start token to the
+        # labels themselves; the trainer already adds its own decoder input
+        # start token separately, so a copy left in the labels needs to be
+        # stripped here or every label ends up shifted by one position
         if (labels[:, 0] == self.decoder_start_token_id).all().cpu().item():
             labels = labels[:, 1:]
 
@@ -274,6 +282,10 @@ trainer = Seq2SeqTrainer(
     eval_dataset=dataset["validation"],
     data_collator=data_collator,
     tokenizer=processor.feature_extractor,
+    # eval_loss, not an accuracy-style metric - this is a generative seq2seq
+    # setup, so there's no simple per-word score to watch during training
+    # itself. Stops once eval_loss stops improving for 2 straight evals
+    # instead of always training for the full NUM_TRAIN_EPOCHS.
     callbacks=[
         EarlyStoppingCallback(early_stopping_patience=2)
     ],

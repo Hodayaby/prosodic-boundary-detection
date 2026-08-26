@@ -1,6 +1,11 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# Looks at the model's raw probability (prob_1), not just its 0/1 prediction
+# at the default 0.5 cutoff - the actual question here is whether raising the
+# decision threshold trades away false positives faster than it costs true
+# positives, to find a threshold worth actually using.
+
 # ============================================================
 # Input
 # ============================================================

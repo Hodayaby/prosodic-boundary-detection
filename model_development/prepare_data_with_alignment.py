@@ -5,7 +5,7 @@ import os
 from data_cleaning import clean_words_dataframe
 
 OUTPUT_DIR = "data/generated_training_data"
-PADDING_MS = 200
+PADDING_MS = 200  # small trailing buffer so the last word's audio isn't cut off right at its end_s
 
 def process_audio(audio_path, csv_path):
     print(f"Processing audio: {audio_path}")
@@ -35,6 +35,12 @@ def process_audio(audio_path, csv_path):
         """
         Save one audio chunk, one row in the training CSV,
         and one alignment row per word in the chunk.
+
+        Two outputs come out of this the whole function: the training CSV
+        (chunk audio + inline-tagged text, same format as prepare_data.py's
+        baseline) and the word alignment CSV (one row per word with its own
+        start_s/end_s/label) - the alignment table is what later evaluation
+        and the real pipeline use to score/compare per word, not per chunk.
         """
         if not current_words:
             return
@@ -110,7 +116,9 @@ def process_audio(audio_path, csv_path):
                 "original_boundary": row["original_boundary"]
             })
 
-    # Save last chunk
+    # Save last chunk - no PADDING_MS here, there's no next word to bump into,
+    # so every chunk's audio ends up slightly longer than exactly 30s except
+    # possibly the last one
     if current_words:
         chunk_end_ms = df.iloc[-1]["end_s"] * 1000
 

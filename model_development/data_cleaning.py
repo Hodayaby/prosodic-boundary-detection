@@ -62,6 +62,11 @@ def clean_words_dataframe(df, csv_path=None, output_dir="."):
 
     # --------------------------------------------------
     # Clean labels
+    # Original annotation scheme: 0=non-boundary, 1=clause boundary,
+    # 2=restart, 3=back to previous clause, 4=transient boundary.
+    # For the binary model only 1 and 4 count as a real boundary - 2 and 3
+    # are just disfluencies mid-utterance (the speaker restarting or
+    # backtracking), not the speaker actually finishing a clause.
     # 2 -> 0
     # 3 -> 0
     # 4 -> 1
@@ -78,6 +83,11 @@ def clean_words_dataframe(df, csv_path=None, output_dir="."):
 
     # --------------------------------------------------
     # Drop rows without timing, without moving labels
+    # Missing start_s/end_s means the forced-alignment tool couldn't place
+    # that word - mostly numbers written as digits but spoken as words
+    # ("2024" -> "twenty twenty-four") plus a few short tokens. Dropping
+    # here (before any reset_index) keeps every remaining row's own label
+    # attached to the right word instead of silently shifting.
     # --------------------------------------------------
     missing_time = df["start_s"].isna() | df["end_s"].isna()
 
