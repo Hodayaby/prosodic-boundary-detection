@@ -8,6 +8,25 @@
     --blue: #3b82f6;
     --hairline: #e6e6ef;
     --muted: #6b6b7a;
+    --surface: #fafafd;
+}
+
+/* Dark mode follows the OS/browser preference, same as Streamlit's own
+   native theme - there's no separate in-app toggle to hook into. Only
+   the tokens change here; every rule below already reads through these
+   variables, so nothing else needs a dark-specific override. Accent
+   colors (violet/blue) and the primary button's gradient stay exactly
+   as they are in light mode - they're already vivid enough to read
+   against either background, and buttons specifically aren't meant to
+   change look between themes. */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --ink: #f0f0f5;
+        --paper: #14141c;
+        --hairline: #2e2e3d;
+        --muted: #9d9dab;
+        --surface: #1c1c28;
+    }
 }
 
 /* Base page */
@@ -139,7 +158,11 @@ html, body, [class*="css"] {
     font-family: Georgia, "Palatino Linotype", "Book Antiqua", serif;
     font-style: italic;
     font-weight: 500;
-    color: var(--ink);
+    /* !important: Streamlit's own theme sets `h1 { color: inherit }` with
+       higher specificity (class+type selector) than our bare .hero-title
+       class, which would otherwise silently win and inherit the ambient
+       body text color instead of our violet. */
+    color: var(--violet) !important;
     font-size: 2.3rem;
     letter-spacing: 0.01em;
     margin: 0 0 0.5rem 0;
@@ -178,7 +201,9 @@ html, body, [class*="css"] {
     font-family: Georgia, "Palatino Linotype", "Book Antiqua", serif;
     font-style: italic;
     font-weight: 500;
-    color: var(--ink);
+    /* !important: same Streamlit h1/h2 { color: inherit } specificity issue
+       as .hero-title above. */
+    color: var(--violet) !important;
     font-size: 1.9rem;
     margin: 0 0 0.25rem 0;
 }
@@ -201,10 +226,10 @@ html, body, [class*="css"] {
    Failure still uses Streamlit's own st.error red - see human note in
    app.py's _make_status_callback. */
 .status-line {
-    background: rgba(108, 92, 231, 0.08);
-    border-left: 3px solid var(--violet);
+    background: linear-gradient(90deg, var(--violet), var(--blue));
     border-radius: 6px;
-    color: var(--ink);
+    color: #ffffff;
+    font-weight: 500;
     padding: 0.6rem 0.9rem;
     margin: 0.75rem 0;
     font-size: 0.9rem;
@@ -286,7 +311,7 @@ hr.divider {
 [data-testid="stFileUploaderDropzone"] {
     border-radius: 10px !important;
     border: 1px dashed var(--hairline) !important;
-    background: #fafafd !important;
+    background: var(--surface) !important;
 }
 
 /* Once a file is picked, Streamlit's own "+" next to it actually replaces
