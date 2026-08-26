@@ -634,6 +634,13 @@ elif st.session_state.screen == "upload":
     if run_clicked and not already_running and not blocked_by_pending:
         st.session_state.run_in_progress = True
         _warn_before_unload(True)  # arm now - the call above already ran before this click
+        # The guard above runs inside an iframe that still needs a moment to
+        # mount and register its beforeunload listener on the real page. The
+        # local stages right after this (validating/preprocessing/chunking a
+        # small file) can finish before that registration completes, leaving
+        # a real gap where a reload isn't caught yet - this small pause gives
+        # the browser a beat to catch up before any of that starts.
+        time.sleep(0.3)
         try:
             run_password = st.session_state.get("biu_conn_password", "")
 
