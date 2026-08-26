@@ -11,6 +11,10 @@ a run's connection details across screens), and the visual chrome
 style.css themes.
 """
 
+# ============================================================
+# Setup
+# ============================================================
+
 import sys
 import tempfile
 import time
@@ -90,6 +94,10 @@ def _sync_theme_to_root() -> None:
 
 _sync_theme_to_root()
 
+# ============================================================
+# Decorative brain icon
+# ============================================================
+
 # Quiet corner accents used on every screen after the intro (connect,
 # upload, and - since results render further down the same upload screen -
 # the results view too).
@@ -160,6 +168,10 @@ def _brain_svg() -> str:
         f"{lines}{dots}</svg>"
     )
 
+# ============================================================
+# Wizard state and shared helpers
+# ============================================================
+
 # Which of the three screens (intro / connect / upload) is currently shown.
 # Pure display state - has no effect on how the pipeline itself runs.
 if "screen" not in st.session_state:
@@ -190,6 +202,13 @@ def _parse_biu_address(address: str):
 
 
 def _go(screen_name: str) -> None:
+    """Switch the wizard to a different screen - passed as an on_click
+    handler, not called directly, since Streamlit only picks up a
+    session_state change like this one on the next script rerun.
+
+    Input: screen_name - one of "intro", "connect", "upload".
+    Output: none.
+    """
     st.session_state.screen = screen_name
 
 
@@ -303,7 +322,10 @@ def _warn_before_unload(active: bool) -> None:
     )
 
 
-# ---------------------------------------------------------------- intro ---
+# ============================================================
+# Screen: intro
+# ============================================================
+
 if st.session_state.screen == "intro":
     st.markdown(
         f"""
@@ -322,7 +344,10 @@ if st.session_state.screen == "intro":
     with center:
         st.button("Start", type="primary", use_container_width=True, on_click=_go, args=("connect",))
 
-# -------------------------------------------------------------- connect ---
+# ============================================================
+# Screen: connect
+# ============================================================
+
 elif st.session_state.screen == "connect":
     st.markdown(_CORNER_GLOW, unsafe_allow_html=True)
     st.markdown(
@@ -461,7 +486,10 @@ elif st.session_state.screen == "connect":
             args=("upload",),
         )
 
-# --------------------------------------------------------------- upload ---
+# ============================================================
+# Screen: upload
+# ============================================================
+
 elif st.session_state.screen == "upload":
     st.markdown(_CORNER_GLOW, unsafe_allow_html=True)
 

@@ -5,6 +5,10 @@
    through the CSS variables in :root, so a rule almost never needs its
    own light/dark branch; only the variables' values change. */
 
+/* ============================================================
+   Theme tokens
+   ============================================================ */
+
 :root {
     --ink: #12121a;
     --paper: #ffffff;
@@ -47,7 +51,10 @@
     --surface: #1c1c28;
 }
 
-/* Base page */
+/* ============================================================
+   Base page
+   ============================================================ */
+
 [data-testid="stAppViewContainer"] {
     background: var(--paper);
 }
@@ -63,7 +70,10 @@ html, body, [class*="css"] {
     font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
-/* ---------- Hero ---------- */
+/* ============================================================
+   Hero (intro screen)
+   ============================================================ */
+
 .hero {
     position: relative;
     text-align: center;
@@ -207,7 +217,10 @@ html, body, [class*="css"] {
     margin-top: 0.75rem;
 }
 
-/* ---------- Wizard screens ---------- */
+/* ============================================================
+   Wizard screens (connect / upload / results)
+   ============================================================ */
+
 .screen {
     animation: fade-up 0.5s ease-out both;
 }
@@ -238,7 +251,10 @@ html, body, [class*="css"] {
     margin-bottom: 1.5rem;
 }
 
-/* ---------- Live run status ---------- */
+/* ============================================================
+   Live run status
+   ============================================================ */
+
 /* The "what's happening right now" line shown while a run is in progress -
    themed violet since it's a status, not a warning/success judgment.
    Failure still uses Streamlit's own st.error red - see human note in
@@ -254,7 +270,10 @@ html, body, [class*="css"] {
     font-size: 0.9rem;
 }
 
-/* ---------- Step progress ---------- */
+/* ============================================================
+   Step progress
+   ============================================================ */
+
 /* One dot per wizard step (connect, upload, results) - filled from the
    first step through whichever one is current, so the whole wizard is
    visible at once instead of just a "Step 02" label with no sense of how
@@ -280,7 +299,10 @@ hr.divider {
     margin: 1.5rem 0;
 }
 
-/* ---------- Inputs ---------- */
+/* ============================================================
+   Inputs
+   ============================================================ */
+
 [data-testid="stTextInput"] input {
     border-radius: 8px !important;
     border: 1px solid var(--hairline) !important;
@@ -290,7 +312,10 @@ hr.divider {
     box-shadow: 0 0 0 1px var(--violet) !important;
 }
 
-/* ---------- Buttons ---------- */
+/* ============================================================
+   Buttons
+   ============================================================ */
+
 .stButton > button {
     border-radius: 8px;
     font-weight: 600;
@@ -326,7 +351,10 @@ hr.divider {
     border-color: var(--violet);
 }
 
-/* ---------- File uploader ---------- */
+/* ============================================================
+   File uploader
+   ============================================================ */
+
 [data-testid="stFileUploaderDropzone"] {
     border-radius: 10px !important;
     border: 1px dashed var(--hairline) !important;

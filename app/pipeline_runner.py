@@ -1,4 +1,12 @@
-"""Adapts the UI's raw text inputs into the real pipeline and runs it."""
+"""Adapts the UI's raw text inputs into the real pipeline and runs it.
+
+Thin translation layer between app.py and pipeline/orchestrator.py:
+app.py only ever deals in plain strings and file paths (whatever a
+Streamlit text_input or file_uploader hands back), this module turns
+those into the real BIUCredentials/Path objects pipeline_job.py expects,
+and back. No pipeline logic of its own - if a rule about how a run
+behaves needs to change, it belongs in pipeline/, not here.
+"""
 
 import sys
 from pathlib import Path
