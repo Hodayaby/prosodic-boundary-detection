@@ -226,10 +226,11 @@ html, body, [class*="css"] {
    Failure still uses Streamlit's own st.error red - see human note in
    app.py's _make_status_callback. */
 .status-line {
-    background: linear-gradient(90deg, var(--violet), var(--blue));
+    background: rgba(108, 92, 231, 0.08);
+    border-left: 3px solid var(--violet);
     border-radius: 6px;
-    color: #ffffff;
-    font-weight: 500;
+    color: var(--violet);
+    font-weight: 600;
     padding: 0.6rem 0.9rem;
     margin: 0.75rem 0;
     font-size: 0.9rem;
