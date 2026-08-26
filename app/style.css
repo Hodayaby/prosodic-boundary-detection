@@ -8,6 +8,39 @@
     --blue: #3b82f6;
     --hairline: #e6e6ef;
     --muted: #6b6b7a;
+    --surface: #fafafd;
+}
+
+/* Dark mode. Only the tokens change here; every rule below already reads
+   through these variables, so nothing else needs a dark-specific override.
+   Accent colors (violet/blue) and the primary button's gradient stay
+   exactly as they are in light mode - they're already vivid enough to
+   read against either background, and buttons specifically aren't meant
+   to change look between themes.
+
+   Two triggers, because Streamlit's theme has two independent sources:
+   the @media query gives an instant best guess from the OS/browser
+   preference (covers the moment before app.py's _sync_theme_to_root
+   component has run); the [data-theme="dark"] rule is driven by that
+   component reading Streamlit's own resolved theme back (via the
+   color-scheme it sets on the app root) and wins once it's run - that's
+   the only way to see an explicit in-app "Dark"/"Light" choice, which
+   overrides "System" independently of the OS preference entirely. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --ink: #f0f0f5;
+        --paper: #14141c;
+        --hairline: #2e2e3d;
+        --muted: #9d9dab;
+        --surface: #1c1c28;
+    }
+}
+:root[data-theme="dark"] {
+    --ink: #f0f0f5;
+    --paper: #14141c;
+    --hairline: #2e2e3d;
+    --muted: #9d9dab;
+    --surface: #1c1c28;
 }
 
 /* Base page */
@@ -139,7 +172,11 @@ html, body, [class*="css"] {
     font-family: Georgia, "Palatino Linotype", "Book Antiqua", serif;
     font-style: italic;
     font-weight: 500;
-    color: var(--ink);
+    /* !important: Streamlit's own theme sets `h1 { color: inherit }` with
+       higher specificity (class+type selector) than our bare .hero-title
+       class, which would otherwise silently win and inherit the ambient
+       body text color instead of our violet. */
+    color: var(--violet) !important;
     font-size: 2.3rem;
     letter-spacing: 0.01em;
     margin: 0 0 0.5rem 0;
@@ -178,14 +215,39 @@ html, body, [class*="css"] {
     font-family: Georgia, "Palatino Linotype", "Book Antiqua", serif;
     font-style: italic;
     font-weight: 500;
-    color: var(--ink);
+    /* !important: same Streamlit h1/h2 { color: inherit } specificity issue
+       as .hero-title above. */
+    color: var(--violet) !important;
     font-size: 1.9rem;
     margin: 0 0 0.25rem 0;
+}
+/* Streamlit auto-adds a "link to heading" anchor icon to every h1-h6 it
+   renders, including raw HTML ones like screen-title - not something we
+   put there, and not useful on a wizard step title (there's nowhere else
+   to link to it from). */
+.screen-title [data-testid="stHeaderActionElements"] {
+    display: none;
 }
 .screen-sub {
     color: var(--muted);
     font-size: 0.9rem;
     margin-bottom: 1.5rem;
+}
+
+/* ---------- Live run status ---------- */
+/* The "what's happening right now" line shown while a run is in progress -
+   themed violet since it's a status, not a warning/success judgment.
+   Failure still uses Streamlit's own st.error red - see human note in
+   app.py's _make_status_callback. */
+.status-line {
+    background: rgba(108, 92, 231, 0.08);
+    border-left: 3px solid var(--violet);
+    border-radius: 6px;
+    color: var(--violet);
+    font-weight: 600;
+    padding: 0.6rem 0.9rem;
+    margin: 0.75rem 0;
+    font-size: 0.9rem;
 }
 
 /* ---------- Step progress ---------- */
@@ -264,7 +326,7 @@ hr.divider {
 [data-testid="stFileUploaderDropzone"] {
     border-radius: 10px !important;
     border: 1px dashed var(--hairline) !important;
-    background: #fafafd !important;
+    background: var(--surface) !important;
 }
 
 /* Once a file is picked, Streamlit's own "+" next to it actually replaces
