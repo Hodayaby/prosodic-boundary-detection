@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from pipeline.job_logging import get_job_logger, log_stage, new_job_id
+from pipeline.job_logging import close_job_logger, get_job_logger, log_stage, new_job_id
 
 
 def _read_log_lines(log_path):
@@ -47,3 +47,17 @@ def test_get_job_logger_does_not_duplicate_handlers_on_repeat_calls(tmp_path):
 
     assert logger_a is logger_b
     assert len(logger_a.handlers) == 1
+
+
+def test_close_job_logger_releases_the_log_file(tmp_path):
+    job_id = new_job_id()
+    logger = get_job_logger(job_id, tmp_path)
+    with log_stage(logger, "chunking"):
+        pass
+
+    close_job_logger(logger)
+
+    assert logger.handlers == []
+    # An open handle blocks even a rename on Windows - proves the file is
+    # actually released, not just detached on the Python side.
+    (tmp_path / f"{job_id}.log").rename(tmp_path / "renamed.log")

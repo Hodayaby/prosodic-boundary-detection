@@ -156,3 +156,38 @@ def test_stage_failure_writes_failed_event_to_job_log(monkeypatch, tmp_path):
     failed = [r for r in records if r["event"] == "failed"]
     assert len(failed) == 1
     assert failed[0]["stage"] == "chunking"
+
+
+def _assert_log_file_is_released(tmp_path):
+    """A leaked FileHandler doesn't fail on its own - it only surfaces when
+    something later tries to remove the file it's still holding open,
+    which os.rmdir refuses on Windows (Unix wouldn't catch this same bug).
+    Mirrors app.py wrapping the job in a tempfile.TemporaryDirectory that
+    gets deleted the moment run_pipeline_job returns.
+    """
+    log_files = list(tmp_path.glob("*.log"))
+    assert len(log_files) == 1
+    log_files[0].unlink()
+    tmp_path.rmdir()
+
+
+def test_happy_path_releases_the_job_log_file(monkeypatch, tmp_path):
+    calls = []
+    _patch_happy_path(monkeypatch, calls)
+    log_dir = tmp_path / "logs"
+
+    run_pipeline_job("a.wav", "t.csv", _creds(), tmp_path / "result.csv", local_log_dir=log_dir)
+
+    _assert_log_file_is_released(log_dir)
+
+
+def test_stage_failure_still_releases_the_job_log_file(monkeypatch, tmp_path):
+    calls = []
+    _patch_happy_path(monkeypatch, calls)
+    monkeypatch.setattr(orchestrator, "chunk_audio", lambda audio, transcript: (_ for _ in ()).throw(ValueError("bad chunk math")))
+    log_dir = tmp_path / "logs"
+
+    with pytest.raises(PipelineError):
+        run_pipeline_job("a.wav", "t.csv", _creds(), tmp_path / "result.csv", local_log_dir=log_dir)
+
+    _assert_log_file_is_released(log_dir)
