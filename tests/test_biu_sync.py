@@ -408,6 +408,29 @@ def test_run_biu_job_happy_path(monkeypatch, tmp_path):
     assert cleanup_calls == ["pipeline_jobs/job1"]
 
 
+def test_run_biu_job_calls_on_status_for_every_poll(monkeypatch, tmp_path):
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "upload_job", lambda ssh, chunks, sample_rate, email: "pipeline_jobs/job1")
+    monkeypatch.setattr(biu_sync, "submit_slurm_job", lambda ssh, job_dir: "42")
+
+    states = iter(["PENDING", "RUNNING", "COMPLETED"])
+    monkeypatch.setattr(biu_sync, "poll_job_status", lambda ssh, job_id: JobStatus(job_id, next(states)))
+
+    result_path = tmp_path / "result.csv"
+    pd.DataFrame({"word": ["hi"]}).to_csv(result_path, index=False)
+    monkeypatch.setattr(biu_sync, "download_result", lambda ssh, job_dir, local_path: None)
+    monkeypatch.setattr(biu_sync, "cleanup_job", lambda ssh, job_dir: None)
+
+    seen_states = []
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    biu_sync.run_biu_job(
+        creds, [_make_chunk()], result_path, poll_interval_s=0, on_status=lambda status: seen_states.append(status.state)
+    )
+
+    assert seen_states == ["PENDING", "RUNNING", "COMPLETED"]
+
+
 def test_run_biu_job_raises_and_still_cleans_up_on_failed_state(monkeypatch, tmp_path):
     fake_ssh = MagicMock()
     monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))

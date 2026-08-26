@@ -153,6 +153,39 @@ def _step_dots(current: int, total: int = 3) -> str:
     return f'<div class="step-dots">{dots}</div>'
 
 
+_STAGE_LABELS = {
+    "input_validation": "Validating input",
+    "audio_preprocessing": "Preprocessing audio",
+    "chunking": "Splitting into chunks",
+    "transcript_alignment": "Aligning transcript",
+    "biu_sync": "Running on BIU",
+}
+
+
+def _make_status_callback(placeholder):
+    """Build an on_stage_event callback that shows the pipeline's live
+    progress in `placeholder`. Streamlit sends a placeholder's updates to
+    the browser as soon as they're written, even mid-script - the only way
+    to see per-stage/SLURM-poll progress during a run instead of just a
+    static spinner until the whole (potentially long) job finishes.
+
+    Input: placeholder - an st.empty() to write status text into.
+    Output: a callback matching pipeline.job_logging.StageEventCallback.
+    """
+    def _callback(stage, event, fields):
+        label = _STAGE_LABELS.get(stage, stage)
+        if event == "start":
+            placeholder.info(f"Running: {label}...")
+        elif event == "completed":
+            placeholder.info(f"Done: {label}.")
+        elif event == "failed":
+            placeholder.error(f"Failed: {label}.")
+        elif event == "polling":
+            placeholder.info(f"Running: {label} - SLURM job {fields['slurm_job_id']} ({fields['slurm_state']})")
+
+    return _callback
+
+
 def _trim_for_display(results_df):
     """Drop columns that are internal details, not useful to a person looking
     at results: threshold is the same constant value on every row, and
@@ -544,6 +577,7 @@ elif st.session_state.screen == "upload":
                     transcript_path.write_bytes(transcript_file.getvalue())
 
                     log_dir = tmp_dir / "logs"
+                    status_placeholder = st.empty()
 
                     try:
                         with st.spinner("Running pipeline - this can take a while on a busy SLURM queue..."):
@@ -556,6 +590,7 @@ elif st.session_state.screen == "upload":
                                 local_result_path=result_path,
                                 notify_email=st.session_state.get("biu_conn_notify_email") or None,
                                 local_log_dir=log_dir,
+                                on_stage_event=_make_status_callback(status_placeholder),
                             )
                     except PipelineError as exc:
                         st.error(f"Failed at stage '{exc.stage}': {exc}")

@@ -40,6 +40,33 @@ def test_log_stage_records_failure_and_reraises(tmp_path):
     assert records[1]["error"] == "boom"
 
 
+def test_log_stage_invokes_on_event_callback(tmp_path):
+    job_id = new_job_id()
+    logger = get_job_logger(job_id, tmp_path)
+    events = []
+
+    with log_stage(logger, "chunking", on_event=lambda stage, event, fields: events.append((stage, event, fields))) as metrics:
+        metrics["num_chunks"] = 3
+
+    assert events[0] == ("chunking", "start", {})
+    assert events[1][:2] == ("chunking", "completed")
+    assert events[1][2]["num_chunks"] == 3
+
+
+def test_log_stage_invokes_on_event_callback_on_failure(tmp_path):
+    job_id = new_job_id()
+    logger = get_job_logger(job_id, tmp_path)
+    events = []
+
+    with pytest.raises(ValueError):
+        with log_stage(logger, "chunking", on_event=lambda stage, event, fields: events.append((stage, event, fields))):
+            raise ValueError("boom")
+
+    assert events[0] == ("chunking", "start", {})
+    assert events[1][1] == "failed"
+    assert events[1][2]["error"] == "boom"
+
+
 def test_get_job_logger_does_not_duplicate_handlers_on_repeat_calls(tmp_path):
     job_id = new_job_id()
     logger_a = get_job_logger(job_id, tmp_path)
