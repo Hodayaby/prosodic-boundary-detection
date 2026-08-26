@@ -24,7 +24,9 @@
 
 set -e
 
-
+# Submit this with `sbatch model_development/train_whisper2.slurm` from the
+# repo root - $SLURM_SUBMIT_DIR then IS the repo root, which is what the
+# relative paths below (data/splits/..., model_development/...) assume.
 
 cd $SLURM_SUBMIT_DIR
 
@@ -86,7 +88,7 @@ echo "========================================"
 
 
 
-python train_whisper_binary.py
+python model_development/train_whisper_binary.py
 
 
 
