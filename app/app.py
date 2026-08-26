@@ -1,5 +1,6 @@
 """Upload UI for the boundary-detection pipeline."""
 
+import json
 import sys
 import tempfile
 import time
@@ -466,7 +467,30 @@ elif st.session_state.screen == "upload":
     # below), so its mere presence is enough to know a result is waiting,
     # from *any* session, not just the one that happened to compute it.
     results_dir = Path(tempfile.gettempdir()) / "prosodic_pipeline_results"
+    existing_errors = sorted(results_dir.glob("error_*.json")) if results_dir.exists() else []
     existing_results = sorted(results_dir.glob("result_*.csv")) if results_dir.exists() else []
+
+    if existing_errors:
+        st.markdown(
+            f"""
+            <div class="screen">
+              {_step_dots(2)}
+              <h2 class="screen-title">Your last run failed.</h2>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        pending_error_path = existing_errors[0]
+        error_data = json.loads(pending_error_path.read_text())
+        st.error(f"Failed at stage '{error_data['stage']}': {error_data['message']}")
+        for log_name, log_text in error_data.get("logs", {}).items():
+            with st.expander(f"Log: {log_name}"):
+                st.code(log_text)
+        if st.button("Start a new run", type="primary", use_container_width=True, key="dismiss_last_error"):
+            pending_error_path.unlink(missing_ok=True)
+            st.rerun()
+        st.stop()
+
     if existing_results:
         st.markdown(
             f"""
@@ -626,6 +650,8 @@ elif st.session_state.screen == "upload":
                 results_dir.mkdir(parents=True, exist_ok=True)
                 for leftover in results_dir.glob("result_*.csv"):
                     leftover.unlink(missing_ok=True)
+                for leftover in results_dir.glob("error_*.json"):
+                    leftover.unlink(missing_ok=True)
                 result_path = results_dir / f"result_{uuid.uuid4().hex[:8]}.csv"
 
                 # Streamlit's uploaded files live in memory; write them to a temp
@@ -654,6 +680,20 @@ elif st.session_state.screen == "upload":
                                 on_stage_event=_make_status_callback(status_placeholder),
                             )
                     except PipelineError as exc:
+                        # Persisted the same way a success is (see the
+                        # existing_errors check above) - a superseding rerun
+                        # (e.g. touching a file uploader while this is still
+                        # running) can drop this exact st.error() call
+                        # without ever showing it, and the log files below
+                        # live in tmp_dir, which is gone the moment this
+                        # `with` block exits - so their text is read now and
+                        # inlined, not just their paths.
+                        error_path = results_dir / f"error_{uuid.uuid4().hex[:8]}.json"
+                        error_path.write_text(json.dumps({
+                            "stage": exc.stage,
+                            "message": str(exc),
+                            "logs": {p.name: p.read_text(errors="replace") for p in exc.log_paths},
+                        }))
                         st.error(f"Failed at stage '{exc.stage}': {exc}")
                         for log_path in exc.log_paths:
                             with st.expander(f"Log: {log_path.name}"):
