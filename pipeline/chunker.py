@@ -47,7 +47,7 @@ def chunk_audio(
     if transcript.empty:
         return []
 
-    words = transcript.sort_values("start_s").reset_index(drop=True)
+    words = transcript.sort_values("start_s").reset_index(drop=True)  # defensive - callers should already be sorted, but chunking assumes it
     sample_rate = audio.sample_rate
 
     chunks: List[AudioChunk] = []
@@ -74,6 +74,10 @@ def chunk_audio(
             )
         )
 
+    # walks word-by-word rather than slicing by a fixed time window, so the
+    # cut always lands on a word boundary - closing on prev_end_s (not the
+    # current word's start) means the chunk boundary sits exactly where the
+    # previous word finished, with no silence gap or overlap either side
     for i in range(len(words)):
         word_end_s = words.loc[i, "end_s"]
 
@@ -85,6 +89,6 @@ def chunk_audio(
             chunk_start_idx = i
             chunk_start_s = words.loc[i, "start_s"]
 
-    close_chunk(len(words) - 1, words.loc[len(words) - 1, "end_s"])
+    close_chunk(len(words) - 1, words.loc[len(words) - 1, "end_s"])  # always close the final, still-open chunk
 
     return chunks

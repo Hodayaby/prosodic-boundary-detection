@@ -75,6 +75,7 @@ def run_pipeline_job(
     """
     local_result_path = Path(local_result_path)
 
+    # ---- 1. input validation ----
     with log_stage("input_validation", on_event=on_stage_event):
         try:
             validate_audio(audio_path)
@@ -82,6 +83,10 @@ def run_pipeline_job(
         except InputValidationError as exc:
             raise PipelineError("input_validation", str(exc)) from exc
 
+    # ---- 2. audio preprocessing ----
+    # bare `except Exception` here and in chunking, unlike the other three
+    # stages: those two modules don't define their own exception type, so
+    # this is the only place their failures get labeled with a stage at all
     with log_stage("audio_preprocessing", on_event=on_stage_event) as metrics:
         try:
             audio = preprocess_audio(audio_path)
@@ -89,6 +94,7 @@ def run_pipeline_job(
             raise PipelineError("audio_preprocessing", str(exc)) from exc
         metrics["duration_s"] = audio.duration_s
 
+    # ---- 3. chunking ----
     with log_stage("chunking", on_event=on_stage_event) as metrics:
         try:
             chunks = chunk_audio(audio, transcript)
@@ -96,16 +102,21 @@ def run_pipeline_job(
             raise PipelineError("chunking", str(exc)) from exc
         metrics["num_chunks"] = len(chunks)
 
+    # ---- 4. transcript alignment ----
     with log_stage("transcript_alignment", on_event=on_stage_event):
         try:
             validate_alignment(audio, transcript, chunks)
         except AlignmentError as exc:
             raise PipelineError("transcript_alignment", str(exc)) from exc
 
+    # ---- 5. BIU sync: upload, SLURM job, poll, download ----
     with log_stage("biu_sync", on_event=on_stage_event):
         try:
             on_slurm_status = None
             if on_stage_event:
+                # wraps the UI's generic on_stage_event into the narrower
+                # shape run_biu_job's on_status expects (just a JobStatus),
+                # tagging every poll as this stage's own "polling" sub-event
                 on_slurm_status = lambda status: on_stage_event(
                     "biu_sync", "polling", {"slurm_job_id": status.slurm_job_id, "slurm_state": status.state}
                 )

@@ -49,6 +49,10 @@ class AudioInfo:
     num_channels: int
 
 
+# ============================================================
+# Audio validation
+# ============================================================
+
 def validate_audio(audio_path: Union[str, Path]) -> AudioInfo:
     """Check that audio_path exists, is a supported format, and is a reasonable length.
 
@@ -78,7 +82,7 @@ def validate_audio(audio_path: Union[str, Path]) -> AudioInfo:
 
     num_channels = 1 if speech_array.ndim == 1 else speech_array.shape[0]
     num_samples = speech_array.shape[-1]
-    duration_s = num_samples / sample_rate if sample_rate else 0.0
+    duration_s = num_samples / sample_rate if sample_rate else 0.0  # guards a stray sample_rate=0 rather than trusting librosa never returns it
 
     if duration_s < MIN_DURATION_S:
         raise InputValidationError(
@@ -94,6 +98,10 @@ def validate_audio(audio_path: Union[str, Path]) -> AudioInfo:
 
     return AudioInfo(path=path, duration_s=duration_s, sample_rate=sample_rate, num_channels=num_channels)
 
+
+# ============================================================
+# Transcript CSV validation
+# ============================================================
 
 def _resolve_transcript_columns(df: pd.DataFrame, filename: str) -> Dict[str, str]:
     """Map each canonical column name to the actual column in df that represents it.
@@ -116,6 +124,9 @@ def _resolve_transcript_columns(df: pd.DataFrame, filename: str) -> Dict[str, st
     problems: List[str] = []
 
     for canonical, keyword in TRANSCRIPT_COLUMN_KEYWORDS.items():
+        # exact name match wins outright; substring is only a fallback, so a
+        # file with both "start_s" and some unrelated "restart" column still
+        # resolves cleanly instead of tripping the "more than one column" case
         exact = [c for c in df.columns if c.lower() == canonical.lower()]
         candidates = exact or [c for c in df.columns if keyword in c.lower()]
 
@@ -144,6 +155,10 @@ def _resolve_transcript_columns(df: pd.DataFrame, filename: str) -> Dict[str, st
 
     return resolved
 
+
+# ============================================================
+# Entry points
+# ============================================================
 
 def validate_transcript_csv(csv_path: Union[str, Path]) -> pd.DataFrame:
     """Load csv_path and check it has usable word/start_s/end_s columns and sane values.

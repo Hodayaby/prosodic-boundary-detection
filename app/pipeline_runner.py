@@ -34,6 +34,10 @@ __all__ = [
 ]
 
 
+# ============================================================
+# Connection check
+# ============================================================
+
 def test_connection(host: str, username: str, password: str) -> None:
     """Open and immediately close an SSH connection, to check the login details
     before asking the user to upload anything.
@@ -46,6 +50,10 @@ def test_connection(host: str, username: str, password: str) -> None:
     with connect(credentials):
         pass
 
+
+# ============================================================
+# Main pipeline run
+# ============================================================
 
 def run_pipeline(
     audio_path: Union[str, Path],
@@ -86,6 +94,10 @@ def run_pipeline(
     )
 
 
+# ============================================================
+# Pending-job recovery
+# ============================================================
+
 def find_pending_job(host: str, username: str) -> Optional[dict]:
     """The most recent job recorded for this server/account that a previous
     session lost track of (e.g. a dropped connection), if any.
@@ -94,7 +106,7 @@ def find_pending_job(host: str, username: str) -> Optional[dict]:
     Output: a {job_dir, slurm_job_id, created_at, ...} dict, or None if there isn't one.
     """
     jobs = find_pending_jobs(host, username)
-    return jobs[-1] if jobs else None
+    return jobs[-1] if jobs else None  # most recent only - the UI offers one recovery at a time, not a list
 
 
 def check_pending_job_status(host: str, username: str, password: str, slurm_job_id: str) -> JobStatus:

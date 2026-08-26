@@ -35,6 +35,10 @@ DEFAULT_THRESHOLD = 0.5  # matches the threshold evaluate_test_model2.slurm's la
 MAX_REASONABLE_BOUNDARY_RATE = 0.9  # QC sanity ceiling, not a scientific bound
 
 
+# ============================================================
+# Setup
+# ============================================================
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run classify+merge+threshold+QC for one pipeline job.")
     parser.add_argument("--job-dir", required=True, help="Directory with <chunk_id>.wav / <chunk_id>_words.csv, as written by biu_sync.upload_job().")
@@ -42,6 +46,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     return parser.parse_args()
 
+
+# ============================================================
+# Classify + merge + threshold + QC
+# ============================================================
 
 def _chunk_sort_key(chunk_id: str):
     """Sorts chunk_0, chunk_1, ..., chunk_10 in numeric order, not lexicographic
@@ -54,6 +62,8 @@ def find_chunk_ids(job_dir: Path) -> list:
     """Input: job_dir - directory uploaded by biu_sync.upload_job().
     Output: chunk ids (e.g. "chunk_0") in the order chunk_audio() produced them.
     """
+    # globs on *_words.csv specifically, not *.wav - each chunk has one of
+    # each, so globbing both would double-count every chunk id
     chunk_ids = [p.name[: -len("_words.csv")] for p in job_dir.glob("*_words.csv")]
     return sorted(chunk_ids, key=_chunk_sort_key)
 
@@ -96,6 +106,9 @@ def quality_check(result: pd.DataFrame) -> None:
     if result["word"].isna().any() or (result["word"].astype(str).str.strip() == "").any():
         raise ValueError("QC failed: output has missing or empty words")
 
+    # keyed on (chunk_id, start_s, end_s), not word - two different words can
+    # legitimately repeat ("the the"), but the same chunk producing the same
+    # timestamp twice means something upstream actually broke
     duplicates = result.duplicated(subset=["chunk_id", "start_s", "end_s"])
     if duplicates.any():
         raise ValueError(f"QC failed: {int(duplicates.sum())} duplicate (chunk_id, start_s, end_s) rows")
@@ -107,6 +120,10 @@ def quality_check(result: pd.DataFrame) -> None:
             f"suspiciously high, likely points to a broken run rather than real predictions"
         )
 
+
+# ============================================================
+# Main
+# ============================================================
 
 def main() -> None:
     args = parse_args()

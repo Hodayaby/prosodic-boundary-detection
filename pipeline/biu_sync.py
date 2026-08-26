@@ -55,6 +55,8 @@ PER_CHUNK_S = 90
 POLL_MAX_RETRIES = 3
 POLL_RETRY_DELAY_S = 5.0
 
+# SLURM never moves a job out of these states back to RUNNING - once seen,
+# the job is done and it's safe to stop polling and treat it as a failure
 TERMINAL_FAILURE_STATES = {"FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "BOOT_FAIL"}
 
 
@@ -88,7 +90,9 @@ class JobStatus:
     state: str  # e.g. PENDING, RUNNING, COMPLETED, FAILED, UNKNOWN
 
 
-# --- pending-job bookkeeping: recover a job we lost track of, on a later connection ---
+# ============================================================
+# Pending-job bookkeeping: recover a job we lost track of, on a later connection
+# ============================================================
 
 def _load_pending_jobs() -> List[dict]:
     if not PENDING_JOBS_FILE.exists():
@@ -96,6 +100,9 @@ def _load_pending_jobs() -> List[dict]:
     try:
         return json.loads(PENDING_JOBS_FILE.read_text())
     except (json.JSONDecodeError, OSError):
+        # a corrupted or unreadable file should read as "nothing pending",
+        # not crash every caller that just wants to check - worst case we
+        # lose track of an old job, we don't want to block new ones
         return []
 
 
@@ -143,11 +150,21 @@ def find_pending_jobs(host: str, username: str) -> List[dict]:
     return [j for j in _load_pending_jobs() if j["host"] == host and j["username"] == username]
 
 
-# --- pure logic: no network calls, fully unit-testable ---
+# ============================================================
+# Pure logic: no network calls, fully unit-testable
+# ============================================================
 
 def estimate_slurm_time(num_chunks: int) -> str:
     """SLURM --time, scaled by job size: short for a single-file job, up to the
     existing 2h ceiling (matching evaluate_test_model2.slurm) for large batches.
+
+    Worth noting: the 2h cap is hard - a job with enough chunks that
+    OVERHEAD_S + num_chunks*PER_CHUNK_S would exceed it still only gets 2h,
+    and SLURM kills anything still running past its own --time as TIMEOUT.
+    PER_CHUNK_S=90 is a deliberately generous per-chunk estimate, so in
+    practice real jobs finish well inside the cap - a 184-chunk run that
+    "needed" 4.7h by this formula actually completed in under 25 minutes -
+    but a much slower model or GPU could make this cap the real bottleneck.
 
     Input: num_chunks - how many audio chunks this job will process.
     Output: a SLURM-formatted time limit string, e.g. "00:25:00".
@@ -219,6 +236,11 @@ def _parse_sacct_state(sacct_output: str) -> str:
     """sacct --format=State --noheader --parsable2 prints one line per job
     step; states like 'CANCELLED by 12345' get the trailing detail stripped.
 
+    Only the first line is read - sacct also lists the job's internal steps
+    (batch, extern) below the main allocation, and those can briefly show a
+    different state than the job as a whole. The first line is always the
+    top-level job itself, which is the state that actually matters here.
+
     Input: sacct_output - the raw text sacct printed for this job.
     Output: the plain state string (e.g. "RUNNING", "COMPLETED"), or "UNKNOWN" if empty.
     """
@@ -242,7 +264,9 @@ def _chunk_to_wav_bytes(chunk: AudioChunk, sample_rate: int) -> bytes:
     return buffer.getvalue()
 
 
-# --- network calls: exercised via mocks in tests, need real credentials to integration-test ---
+# ============================================================
+# Network calls: exercised via mocks in tests, need real credentials to integration-test
+# ============================================================
 
 @contextmanager
 def connect(credentials: BIUCredentials):
@@ -470,6 +494,10 @@ def cleanup_job(ssh: paramiko.SSHClient, job_dir: str) -> None:
     _run_command(ssh, f"rm -rf {shlex.quote(job_dir)}")
 
 
+# ============================================================
+# Orchestration: the full upload -> submit -> poll -> download -> cleanup cycle
+# ============================================================
+
 def run_biu_job(
     credentials: BIUCredentials,
     chunks: List[AudioChunk],
@@ -544,6 +572,10 @@ def run_biu_job(
 
     return pd.read_csv(local_result_path)
 
+
+# ============================================================
+# Pending-job recovery: acting on a job found via find_pending_jobs()
+# ============================================================
 
 def check_pending_job(credentials: BIUCredentials, slurm_job_id: str) -> JobStatus:
     """Check on a job recorded via record_pending_job that we previously lost track of.

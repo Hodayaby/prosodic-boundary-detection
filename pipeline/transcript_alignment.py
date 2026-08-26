@@ -33,6 +33,10 @@ def validate_alignment(audio: PreprocessedAudio, transcript: pd.DataFrame, chunk
     _validate_chunk_alignment(audio, chunks)
 
 
+# ============================================================
+# Individual checks
+# ============================================================
+
 def _validate_within_duration(audio: PreprocessedAudio, transcript: pd.DataFrame) -> None:
     """Reject a transcript whose last word ends after the audio actually finishes.
 
@@ -43,6 +47,9 @@ def _validate_within_duration(audio: PreprocessedAudio, transcript: pd.DataFrame
         return
 
     max_end_s = transcript["end_s"].max()
+    # +1e-6 tolerance: floating-point rounding at sample boundaries can put a
+    # word's end_s a hair past duration_s even when they're really the same
+    # instant - without it, a perfectly valid transcript could fail here
     if max_end_s > audio.duration_s + 1e-6:
         raise AlignmentError(
             f"Transcript has a word ending at {max_end_s:.3f}s, but the audio is only "
@@ -63,6 +70,8 @@ def _validate_monotonic(transcript: pd.DataFrame) -> None:
     diffs = starts.diff()
     non_monotonic = diffs.iloc[1:] < 0
     if non_monotonic.any():
+        # idxmax() on a boolean Series returns the index of the first True -
+        # this reports the earliest ordering problem, not just "some" problem
         bad_index = non_monotonic.idxmax()
         raise AlignmentError(
             f"Transcript word start times are not monotonic: word at row {bad_index} "
@@ -91,6 +100,9 @@ def _validate_chunk_alignment(audio: PreprocessedAudio, chunks: List[AudioChunk]
                 f"fall outside the chunk's own time span [{chunk.chunk_offset_s:.3f}, {chunk.end_s:.3f}]s."
             )
 
+        # Cross-checks the chunker's own math against the sample count it
+        # actually produced - a >1 sample gap means the chunk's declared time
+        # span and its real audio slice disagree, not just a rounding blip
         expected_samples = round((chunk.end_s - chunk.chunk_offset_s) * audio.sample_rate)
         if abs(len(chunk.samples) - expected_samples) > 1:
             raise AlignmentError(

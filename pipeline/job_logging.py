@@ -40,7 +40,7 @@ def log_stage(stage: str, on_event: Optional[StageEventCallback] = None) -> Iter
         if on_event:
             on_event(stage, event, fields)
 
-    start = time.monotonic()
+    start = time.monotonic()  # not time.time() - immune to the system clock changing mid-stage (NTP sync, DST)
     _notify("start")
     metrics: Dict[str, Any] = {}
     try:

@@ -42,6 +42,8 @@ def preprocess_audio(audio_path: Union[str, Path]) -> PreprocessedAudio:
     Output: PreprocessedAudio with the resampled mono waveform and its metadata.
     """
     path = Path(audio_path)
+    # sr=TARGET_SAMPLE_RATE makes librosa resample during load itself, so
+    # duration_s below is already in terms of the resampled audio, not the source file's original rate
     samples, sample_rate = librosa.load(str(path), sr=TARGET_SAMPLE_RATE, mono=True)
     duration_s = len(samples) / sample_rate if sample_rate else 0.0
 

@@ -7,6 +7,10 @@ and must never be dropped in favor of only the thresholded decision.
 
 import pandas as pd
 
+# ============================================================
+# Schema definition
+# ============================================================
+
 # The exact column order every output table must follow.
 OUTPUT_COLUMNS = (
     "word",
@@ -34,6 +38,10 @@ class SchemaError(ValueError):
     """Raised when a DataFrame doesn't match the pipeline output schema."""
 
 
+# ============================================================
+# Validation and construction
+# ============================================================
+
 def validate_output_schema(df: pd.DataFrame) -> None:
     """Check that df has the required columns and that value ranges make sense.
 
@@ -60,5 +68,8 @@ def new_output_table() -> pd.DataFrame:
     Input: none.
     Output: empty DataFrame with OUTPUT_COLUMNS in order and OUTPUT_DTYPES applied.
     """
+    # building each column as its own typed empty Series first, then
+    # assembling the DataFrame from them, is what fixes the dtypes - an
+    # empty DataFrame built any other way defaults every column to object/NaN
     empty = {col: pd.Series(dtype=dtype) for col, dtype in OUTPUT_DTYPES.items()}
     return pd.DataFrame(empty)[list(OUTPUT_COLUMNS)]
