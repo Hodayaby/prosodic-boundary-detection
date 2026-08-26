@@ -1,5 +1,9 @@
 /* Visual theme only - no functional/logic code lives here.
-   Cold minimalist palette: white background, black text, purple/blue accents. */
+   Cold minimalist palette, in both a light (white/near-black) and a dark
+   (near-black/off-white) mode - see the dark-mode block below - with the
+   same violet/blue accents in either one. Every rule reads its colors
+   through the CSS variables in :root, so a rule almost never needs its
+   own light/dark branch; only the variables' values change. */
 
 :root {
     --ink: #12121a;

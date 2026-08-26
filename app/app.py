@@ -1,4 +1,15 @@
-"""Upload UI for the boundary-detection pipeline."""
+"""Upload UI for the boundary-detection pipeline.
+
+The person-facing half of the two-machine split described in
+pipeline/orchestrator.py's own docstring: a 3-screen Streamlit wizard
+(connect, upload, results) that collects the BIU credentials and the
+two input files, then hands everything to pipeline_runner.run_pipeline
+and renders whatever comes back. No pipeline logic lives here - only
+the screens, the wizard's own state (which screen is showing, stashing
+a run's connection details across screens), and the visual chrome
+(brain-network icon, step dots, live run status, dark-mode sync) that
+style.css themes.
+"""
 
 import sys
 import tempfile
