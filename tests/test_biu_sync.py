@@ -622,6 +622,32 @@ def test_run_biu_job_leaves_the_pending_record_when_cleanup_cannot_run(monkeypat
     assert [j["job_dir"] for j in found] == ["pipeline_jobs/job1"]
 
 
+def test_run_biu_job_does_not_clean_up_when_interrupted_by_something_unrelated(monkeypatch, tmp_path):
+    """An exception from on_status (e.g. a UI interruption unrelated to the
+    job itself) must not delete the remote job directory or forget its
+    pending-job record - the SLURM job could still be legitimately running.
+    Only a genuine COMPLETED/terminal-failure/timeout should trigger cleanup."""
+    fake_ssh = MagicMock()
+    monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))
+    monkeypatch.setattr(biu_sync, "upload_job", lambda ssh, chunks, sample_rate, email: "pipeline_jobs/job1")
+    monkeypatch.setattr(biu_sync, "submit_slurm_job", lambda ssh, job_dir: "42")
+    monkeypatch.setattr(biu_sync, "poll_job_status_with_retry", lambda ssh, job_id: JobStatus(job_id, "RUNNING"))
+
+    cleanup_calls = []
+    monkeypatch.setattr(biu_sync, "cleanup_job", lambda ssh, job_dir: cleanup_calls.append(job_dir))
+
+    def _on_status(status):
+        raise RuntimeError("simulated: something unrelated interrupted this")
+
+    creds = BIUCredentials(host="biu.example.edu", username="shira", password="x")
+    with pytest.raises(RuntimeError, match="simulated"):
+        biu_sync.run_biu_job(creds, [_make_chunk()], tmp_path / "result.csv", poll_interval_s=0, on_status=_on_status)
+
+    assert cleanup_calls == []
+    found = find_pending_jobs("biu.example.edu", "shira")
+    assert [j["job_dir"] for j in found] == ["pipeline_jobs/job1"]
+
+
 def test_check_pending_job_returns_current_status(monkeypatch):
     fake_ssh = MagicMock()
     monkeypatch.setattr(biu_sync, "connect", lambda creds: _FakeConnectCtx(fake_ssh))

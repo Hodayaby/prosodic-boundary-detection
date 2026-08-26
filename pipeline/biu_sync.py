@@ -494,6 +494,30 @@ def cleanup_job(ssh: paramiko.SSHClient, job_dir: str) -> None:
     _run_command(ssh, f"rm -rf {shlex.quote(job_dir)}")
 
 
+def _cleanup_and_forget(ssh: paramiko.SSHClient, job_dir: str) -> None:
+    """Delete the remote job directory and its pending-job record together,
+    once we've genuinely finished with a job (success, or a confirmed
+    terminal failure/timeout) - never as a blanket "we're leaving this
+    function no matter why" step. Calling this on anything else (a dropped
+    connection, an unrelated interruption from the caller's own on_status
+    callback, etc.) would delete a job's files while it may still be
+    legitimately running on SLURM - exactly the kind of thing that should
+    instead stay recoverable via find_pending_jobs() on a later connection.
+
+    Best-effort: if cleanup itself fails (e.g. the connection just dropped),
+    the job stays findable via find_pending_jobs() instead of being
+    silently forgotten.
+
+    Input: ssh - an open SSH connection; job_dir - the remote job directory.
+    Output: none.
+    """
+    try:
+        cleanup_job(ssh, job_dir)
+        clear_pending_job(job_dir)
+    except BIUJobError:
+        pass
+
+
 # ============================================================
 # Orchestration: the full upload -> submit -> poll -> download -> cleanup cycle
 # ============================================================
@@ -516,6 +540,14 @@ def run_biu_job(
     their paths to the raised BIUJobError.log_paths so the orchestrator
     can offer them to the user instead of just an error string.
 
+    The remote job directory is only ever deleted here on a genuine
+    COMPLETED, a confirmed terminal failure, or a timeout - not on any
+    other exception (a dropped connection, on_status's caller raising for
+    an unrelated reason, etc.). Those other cases leave the job's files and
+    its pending-job record alone, so it stays recoverable via
+    find_pending_jobs() on a later connection instead of having its
+    working directory deleted while it may still genuinely be running.
+
     Raises BIUJobError on connection failure, job failure, or timeout.
 
     Input: credentials - BIU login details; chunks - audio chunks to process;
@@ -530,45 +562,33 @@ def run_biu_job(
     """
     with connect(credentials) as ssh:
         job_dir = upload_job(ssh, chunks, sample_rate=sample_rate, email=email)
-        try:
-            slurm_job_id = submit_slurm_job(ssh, job_dir)
-            record_pending_job(credentials.host, credentials.username, job_dir, slurm_job_id)
+        slurm_job_id = submit_slurm_job(ssh, job_dir)
+        record_pending_job(credentials.host, credentials.username, job_dir, slurm_job_id)
 
-            start = time.monotonic()
-            while True:
-                status = poll_job_status_with_retry(ssh, slurm_job_id)
-                if on_status:
-                    on_status(status)
+        start = time.monotonic()
+        while True:
+            status = poll_job_status_with_retry(ssh, slurm_job_id)
+            if on_status:
+                on_status(status)
 
-                if status.state == "COMPLETED":
-                    break
-                if status.state in TERMINAL_FAILURE_STATES:
-                    log_paths = download_logs(ssh, job_dir, local_log_dir) if local_log_dir else []
-                    raise BIUJobError(f"SLURM job {slurm_job_id} ended with state {status.state}", log_paths=log_paths)
-                if time.monotonic() - start > timeout_s:
-                    log_paths = download_logs(ssh, job_dir, local_log_dir) if local_log_dir else []
-                    raise BIUJobError(
-                        f"Timed out waiting for SLURM job {slurm_job_id} (last state: {status.state})",
-                        log_paths=log_paths,
-                    )
+            if status.state == "COMPLETED":
+                break
+            if status.state in TERMINAL_FAILURE_STATES:
+                log_paths = download_logs(ssh, job_dir, local_log_dir) if local_log_dir else []
+                _cleanup_and_forget(ssh, job_dir)
+                raise BIUJobError(f"SLURM job {slurm_job_id} ended with state {status.state}", log_paths=log_paths)
+            if time.monotonic() - start > timeout_s:
+                log_paths = download_logs(ssh, job_dir, local_log_dir) if local_log_dir else []
+                _cleanup_and_forget(ssh, job_dir)
+                raise BIUJobError(
+                    f"Timed out waiting for SLURM job {slurm_job_id} (last state: {status.state})",
+                    log_paths=log_paths,
+                )
 
-                time.sleep(poll_interval_s)
+            time.sleep(poll_interval_s)
 
-            download_result(ssh, job_dir, local_result_path)
-        finally:
-            # Best-effort: if the connection is already gone (e.g. it dropped
-            # right after the failure above), cleanup failing here must not
-            # replace/hide a more useful error already in flight from the
-            # try block (SLURM failure, timeout, download failure, etc.).
-            # The pending-job record is only cleared once cleanup actually
-            # succeeds - if it doesn't, the job stays findable via
-            # find_pending_jobs() on a later connection instead of being
-            # silently forgotten.
-            try:
-                cleanup_job(ssh, job_dir)
-                clear_pending_job(job_dir)
-            except BIUJobError:
-                pass
+        download_result(ssh, job_dir, local_result_path)
+        _cleanup_and_forget(ssh, job_dir)
 
     return pd.read_csv(local_result_path)
 
