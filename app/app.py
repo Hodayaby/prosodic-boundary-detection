@@ -172,16 +172,24 @@ def _make_status_callback(placeholder):
     Input: placeholder - an st.empty() to write status text into.
     Output: a callback matching pipeline.job_logging.StageEventCallback.
     """
+    def _status(text: str) -> None:
+        # A themed violet line instead of st.info's default blue box - this
+        # is a "here's what's happening now" status, not a warning/success
+        # judgment, so it gets the site's own accent color rather than
+        # Streamlit's universal alert colors (those stay standard - see
+        # the "failed" branch below).
+        placeholder.markdown(f'<div class="status-line">{text}</div>', unsafe_allow_html=True)
+
     def _callback(stage, event, fields):
         label = _STAGE_LABELS.get(stage, stage)
         if event == "start":
-            placeholder.info(f"Running: {label}...")
+            _status(f"Running: {label}...")
         elif event == "completed":
-            placeholder.info(f"Done: {label}.")
+            _status(f"Done: {label}.")
         elif event == "failed":
             placeholder.error(f"Failed: {label}.")
         elif event == "polling":
-            placeholder.info(f"Running: {label} - SLURM job {fields['slurm_job_id']} ({fields['slurm_state']})")
+            _status(f"Running: {label} - SLURM job {fields['slurm_job_id']} ({fields['slurm_state']})")
 
     return _callback
 
