@@ -975,18 +975,21 @@ def main() -> None:
     df = add_error_type(df)
 
     predictions_path = output_dir / "predictions_with_errors.csv"
-    df.to_csv(predictions_path, index=False)
+    # utf-8-sig, not plain utf-8, on every CSV below: Excel doesn't
+    # auto-detect BOM-less UTF-8 and renders non-ASCII text (e.g. Hebrew
+    # word/context columns) as mojibake without the BOM
+    df.to_csv(predictions_path, index=False, encoding="utf-8-sig")
 
     metrics = compute_metrics(df["true_label"], df["pred_label"], df["prob_1"])
     error_counts = df["error_type"].value_counts()
 
     threshold_df = make_threshold_summary(df, DEFAULT_THRESHOLDS)
     threshold_path = output_dir / "threshold_summary.csv"
-    threshold_df.to_csv(threshold_path, index=False)
+    threshold_df.to_csv(threshold_path, index=False, encoding="utf-8-sig")
 
     manual_review = make_manual_review_examples(df, args)
     manual_review_path = output_dir / "manual_review_examples.csv"
-    manual_review.to_csv(manual_review_path, index=False)
+    manual_review.to_csv(manual_review_path, index=False, encoding="utf-8-sig")
 
     fp = df[df["error_type"] == "FP"].copy()
     high_conf_fp = fp[fp["prob_1"] >= args.high_conf_fp_threshold].copy()
@@ -1018,13 +1021,13 @@ def main() -> None:
             "high_conf_false_positives",
         )
         fp_context_path = output_dir / "high_conf_false_positive_context.csv"
-        fp_context.to_csv(fp_context_path, index=False)
+        fp_context.to_csv(fp_context_path, index=False, encoding="utf-8-sig")
         saved_files.append(fp_context_path)
 
         merged_clean, merge_notes = load_and_merge_original_labels(df, args)
         if merged_clean is not None:
             merged_clean_path = output_dir / "predictions_with_original_labels_clean.csv"
-            merged_clean.to_csv(merged_clean_path, index=False)
+            merged_clean.to_csv(merged_clean_path, index=False, encoding="utf-8-sig")
             saved_files.append(merged_clean_path)
 
             original_label_summary = make_high_conf_fp_original_label_summary(
@@ -1032,7 +1035,7 @@ def main() -> None:
                 args.high_conf_fp_threshold,
             )
             original_label_summary_path = output_dir / "high_conf_fp_original_label_summary.csv"
-            original_label_summary.to_csv(original_label_summary_path, index=False)
+            original_label_summary.to_csv(original_label_summary_path, index=False, encoding="utf-8-sig")
             saved_files.append(original_label_summary_path)
 
     graph_paths: List[Path] = []

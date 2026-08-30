@@ -149,14 +149,16 @@ def main() -> None:
     df = add_error_type(df)
 
     predictions_path = output_dir / "predictions_with_errors.csv"
-    df.to_csv(predictions_path, index=False)
+    # utf-8-sig, not plain utf-8: Excel doesn't auto-detect BOM-less UTF-8 and
+    # renders non-ASCII text (Hebrew here) as mojibake without the BOM
+    df.to_csv(predictions_path, index=False, encoding="utf-8-sig")
 
     metrics = compute_metrics(df["true_label"], df["pred_label"], df["prob_1"])
     error_counts = df["error_type"].value_counts()
 
     threshold_df = make_threshold_summary(df, DEFAULT_THRESHOLDS)
     threshold_path = output_dir / "threshold_summary.csv"
-    threshold_df.to_csv(threshold_path, index=False)
+    threshold_df.to_csv(threshold_path, index=False, encoding="utf-8-sig")
 
     # A minimal stand-in for the real evaluate_boundary_final2.py argparse
     # Namespace - only the fields the report-writing functions actually
@@ -174,7 +176,7 @@ def main() -> None:
 
     manual_review = make_manual_review_examples(df, report_args)
     manual_review_path = output_dir / "manual_review_examples.csv"
-    manual_review.to_csv(manual_review_path, index=False)
+    manual_review.to_csv(manual_review_path, index=False, encoding="utf-8-sig")
 
     saved_files = [predictions_path, threshold_path, manual_review_path]
 
