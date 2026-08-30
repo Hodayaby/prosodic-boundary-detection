@@ -37,6 +37,10 @@ old_data/
 backup_old_splits_*/
 drafts/
 
+# Oz's own model code/weights - only here locally for the KAN-65/66
+# comparison, not ours to commit
+oz_comparison/oz_model/
+
 # System files
 .DS_Store
 Thumbs.db
