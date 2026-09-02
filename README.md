@@ -46,6 +46,10 @@ cd path/to/prosodic-boundary-detection
 python -m streamlit run app/app.py
 ```
 
+Replace `path/to/prosodic-boundary-detection` with wherever this repo
+actually lives on your computer.
+(For example: `cd "C:\Users\...\Documents\..."`.)
+
 (`python -m streamlit` is used instead of plain `streamlit` because the
 `streamlit` command isn't always on PATH after installation.)
 
