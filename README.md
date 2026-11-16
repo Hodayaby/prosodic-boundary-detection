@@ -122,6 +122,8 @@ model_development/      How the model itself was built - training, evaluation, S
   fix_llms_csv.py              One-off cleanup for the Karpathy transcript's timings
   analyze_false_positives.py   Manual error-analysis tooling
 
+wavelet_comparison/     Comparison with the Wavelet Prosody Toolkit (KAN-81), see its README
+
 tests/                   Automated tests, one file per pipeline/ and app/ module
 ```
 

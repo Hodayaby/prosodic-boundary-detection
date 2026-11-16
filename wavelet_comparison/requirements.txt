@@ -1,0 +1,5 @@
+wavelet_prosody_toolkit @ git+https://github.com/asuni/wavelet_prosody_toolkit.git@a19fa7c
+pandas
+scikit-learn
+matplotlib
+soundfile
